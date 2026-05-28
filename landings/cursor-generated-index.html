@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Ігор Лялюк — веб-розробник. Портфоліо та контакти." />
+  <title>Ігор Лялюк — веб-розробник</title>
+  <style>
+    :root {
+      --bg: #0c0e12;
+      --surface: #141820;
+      --border: #252b38;
+      --text: #e8eaef;
+      --muted: #8b93a7;
+      --accent: #5eead4;
+      --accent-dim: #2dd4bf33;
+      --warm: #fbbf24;
+      --font: "Segoe UI", system-ui, -apple-system, sans-serif;
+      --mono: "Cascadia Code", "Fira Code", "Consolas", monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 20% -10%, var(--accent-dim), transparent),
+        radial-gradient(ellipse 60% 40% at 90% 100%, #fbbf2415, transparent);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    a { color: var(--accent); text-decoration: none; transition: opacity 0.2s; }
+    a:hover { opacity: 0.85; }
+
+    .wrap {
+      position: relative;
+      z-index: 1;
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 0 24px 80px;
+    }
+
+    /* —— Nav —— */
+    nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 28px 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 64px;
+    }
+
+    .logo {
+      font-weight: 700;
+      font-size: 1rem;
+      letter-spacing: 0.04em;
+      color: var(--text);
+    }
+
+    .logo span { color: var(--accent); }
+
+    nav ul {
+      display: flex;
+      gap: 28px;
+      list-style: none;
+      font-size: 0.9rem;
+    }
+
+    nav a { color: var(--muted); }
+    nav a:hover { color: var(--text); opacity: 1; }
+
+    /* —— Hero —— */
+    .hero { margin-bottom: 72px; }
+
+    .badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-family: var(--mono);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      background: var(--accent-dim);
+      border: 1px solid #2dd4bf44;
+      padding: 6px 14px;
+      border-radius: 999px;
+      margin-bottom: 24px;
+    }
+
+    h1 {
+      font-size: clamp(2.4rem, 6vw, 3.4rem);
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -0.03em;
+      margin-bottom: 20px;
+    }
+
+    h1 em {
+      font-style: normal;
+      background: linear-gradient(135deg, var(--accent), var(--warm));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .lead {
+      font-size: 1.15rem;
+      color: var(--muted);
+      max-width: 540px;
+      margin-bottom: 32px;
+    }
+
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #0c0e12;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px #2dd4bf44;
+      opacity: 1;
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-ghost:hover {
+      border-color: var(--muted);
+      opacity: 1;
+    }
+
+    /* —— Sections —— */
+    section { margin-bottom: 64px; }
+
+    h2 {
+      font-size: 0.75rem;
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+      margin-bottom: 20px;
+    }
+
+    h2::after {
+      content: "";
+      display: block;
+      width: 40px;
+      height: 2px;
+      background: var(--border);
+      margin-top: 12px;
+    }
+
+    .about p { color: var(--muted); margin-bottom: 16px; }
+    .about p:last-child { margin-bottom: 0; }
+
+    /* —— Skills —— */
+    .skills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .skill {
+      font-size: 0.88rem;
+      padding: 8px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+    }
+
+    /* —— Projects —— */
+    .project-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px;
+      margin-bottom: 16px;
+      transition: border-color 0.2s;
+    }
+
+    .project-card:hover { border-color: #2dd4bf55; }
+
+    .project-card h3 {
+      font-size: 1.1rem;
+      margin-bottom: 8px;
+    }
+
+    .project-card p {
+      font-size: 0.92rem;
+      color: var(--muted);
+      margin-bottom: 14px;
+    }
+
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .tag {
+      font-size: 0.75rem;
+      font-family: var(--mono);
+      color: var(--warm);
+      background: #fbbf2418;
+      padding: 4px 10px;
+      border-radius: 6px;
+    }
+
+    /* —— Timeline —— */
+    .timeline-item {
+      display: grid;
+      grid-template-columns: 100px 1fr;
+      gap: 20px;
+      padding-bottom: 24px;
+      border-left: 2px solid var(--border);
+      margin-left: 8px;
+      padding-left: 24px;
+      position: relative;
+    }
+
+    .timeline-item::before {
+      content: "";
+      position: absolute;
+      left: -7px;
+      top: 6px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid var(--bg);
+    }
+
+    .timeline-item:last-child { border-left-color: transparent; padding-bottom: 0; }
+
+    .year {
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+
+    .timeline-item h3 { font-size: 1rem; margin-bottom: 4px; }
+    .timeline-item p { font-size: 0.9rem; color: var(--muted); }
+
+    /* —— Contact —— */
+    .contact-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      margin-top: 8px;
+    }
+
+    .contact-links a {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.95rem;
+      color: var(--text);
+      padding: 12px 18px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+
+    .contact-links a:hover {
+      border-color: var(--accent);
+      opacity: 1;
+    }
+
+    footer {
+      margin-top: 80px;
+      padding-top: 28px;
+      border-top: 1px solid var(--border);
+      font-size: 0.85rem;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    @media (max-width: 560px) {
+      nav ul { display: none; }
+      .timeline-item { grid-template-columns: 1fr; gap: 4px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav>
+      <div class="logo">IL<span>.</span>dev</div>
+      <ul>
+        <li><a href="#about">Про мене</a></li>
+        <li><a href="#skills">Навички</a></li>
+        <li><a href="#projects">Проєкти</a></li>
+        <li><a href="#contact">Контакт</a></li>
+      </ul>
+    </nav>
+
+    <header class="hero">
+      <span class="badge">Відкритий до співпраці</span>
+      <h1>Привіт, я <em>Ігор Лялюк</em></h1>
+      <p class="lead">
+        Веб-розробник, який любить чистий код і інтерактивні інтерфейси.
+        Вчуся, будую проєкти на Angular та TypeScript — від ігор до лендингів.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="#projects">Дивитись проєкти</a>
+        <a class="btn btn-ghost" href="#contact">Написати мені</a>
+      </div>
+    </header>
+
+    <section id="about" class="about">
+      <h2>Про мене</h2>
+      <p>
+        Я розробник з України. Цікавлюсь фронтендом: як зробити швидкий,
+        зрозумілий і приємний досвід для користувача. Працюю з сучасним
+        стеком — Angular, TypeScript, HTML/CSS та Canvas для ігор і анімацій.
+      </p>
+      <p>
+        Зараз розвиваю навички через практичні проєкти: від класичного Pong
+        на Angular до односторінкових лендингів. Вірю, що найкраще вчишся,
+        коли щось реально працює в браузері.
+      </p>
+      <p>
+        Поза кодом — цікавлюсь дизайном інтерфейсів, геймдевом і тим,
+        як поєднати логіку з естетикою.
+      </p>
+    </section>
+
+    <section id="skills">
+      <h2>Навички</h2>
+      <div class="skills">
+        <span class="skill">HTML5 / CSS3</span>
+        <span class="skill">TypeScript</span>
+        <span class="skill">Angular</span>
+        <span class="skill">RxJS</span>
+        <span class="skill">Canvas API</span>
+        <span class="skill">Git</span>
+        <span class="skill">Responsive UI</span>
+        <span class="skill">SCSS</span>
+      </div>
+    </section>
+
+    <section id="experience">
+      <h2>Шлях</h2>
+      <div class="timeline-item">
+        <span class="year">2025 —</span>
+        <div>
+          <h3>Навчальні проєкти</h3>
+          <p>Веб-розробка: Angular, ігри на Canvas, лендинги в одному файлі.</p>
+        </div>
+      </div>
+      <div class="timeline-item">
+        <span class="year">Зараз</span>
+        <div>
+          <h3>p31_ai / pong-game</h3>
+          <p>Класичний Pong проти ПК: фізика м’яча, AI суперника, пауза та рахунок до 7.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="projects">
+      <h2>Проєкти</h2>
+      <article class="project-card">
+        <h3>Pong Game</h3>
+        <p>
+          Браузерна гра в стилі ретро на Angular 21: standalone-компонент,
+          Signals для стану, ігровий цикл поза NgZone для плавності.
+        </p>
+        <div class="tags">
+          <span class="tag">Angular</span>
+          <span class="tag">Canvas</span>
+          <span class="tag">TypeScript</span>
+        </div>
+      </article>
+      <article class="project-card">
+        <h3>Особистий лендинг</h3>
+        <p>
+          Ця сторінка — односторінковий сайт-візитка: HTML, CSS і мінімум JS,
+          без збірки та залежностей. Швидко відкривається в будь-якому браузері.
+        </p>
+        <div class="tags">
+          <span class="tag">HTML</span>
+          <span class="tag">CSS</span>
+          <span class="tag">Landing</span>
+        </div>
+      </article>
+    </section>
+
+    <section id="contact">
+      <h2>Контакт</h2>
+      <p style="color: var(--muted); margin-bottom: 8px;">
+        Є ідея для проєкту або питання — напиши, відповім.
+      </p>
+      <div class="contact-links">
+        <a href="https://github.com/casperDev3" target="_blank" rel="noopener noreferrer">
+          GitHub — casperDev3
+        </a>
+        <a href="mailto:93039953+casperDev3@users.noreply.github.com">
+          Email
+        </a>
+      </div>
+    </section>
+
+    <footer>
+      © 2025 Ігор Лялюк · Зроблено вручну, один файл
+    </footer>
+  </div>
+
+  <script>
+    document.querySelectorAll('a[href^="#"]').forEach((link) => {
+      link.addEventListener('click', (e) => {
+        const id = link.getAttribute('href');
+        if (id === '#') return;
+        const el = document.querySelector(id);
+        if (el) {
+          e.preventDefault();
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
+  </script>
+</body>
+</html>

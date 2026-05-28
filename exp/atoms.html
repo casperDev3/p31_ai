@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Атоми — Electron Attraction</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: #03030a;
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            cursor: none;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #info {
+            position: fixed;
+            bottom: 28px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 0.75rem;
+            color: rgba(129, 140, 248, 0.45);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            pointer-events: none;
+            white-space: nowrap;
+            transition: opacity 0.6s;
+        }
+
+        #info.hidden { opacity: 0; }
+
+        #reset-btn {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0.9);
+            padding: 16px 36px;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 1rem;
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(129, 140, 248, 0.3);
+            border-radius: 50px;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            cursor: pointer;
+            outline: none;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37), 
+                        inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+            opacity: 0;
+            pointer-events: none;
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 100;
+        }
+
+        #reset-btn.visible {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
+            pointer-events: auto;
+        }
+
+        #reset-btn:hover {
+            background: rgba(129, 140, 248, 0.1);
+            border-color: rgba(129, 140, 248, 0.8);
+            box-shadow: 0 0 25px rgba(129, 140, 248, 0.45),
+                        inset 0 1px 0 0 rgba(255, 255, 255, 0.2);
+            letter-spacing: 3px;
+        }
+        
+        #reset-btn:active {
+            transform: translate(-50%, -50%) scale(0.95);
+        }
+    </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="info">ПКМ — ЗІБРАТИ В МОЛЕКУЛУ</div>
+<button id="reset-btn">Почати знову</button>
+
+<script>
+'use strict';
+
+// ─── Canvas setup ───────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+let W = canvas.width = window.innerWidth;
+let H = canvas.height = window.innerHeight;
+
+window.addEventListener('resize', () => {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+});
+
+// ─── Mouse & click state ─────────────────────────────────────────
+const mouse = { x: W / 2, y: H / 2, active: false };
+
+let isMoleculeMode = false;
+let isExploded = false;
+let explosionFlash = 0;
+let clickTimeout = null;
+
+let rotY = 0;
+let rotX = 0;
+let rotY_auto = 0;
+
+let M_A = 0;
+let M_B = 0;
+let M_R = 0;
+const N_rungs = 18;
+
+const ripples   = [];       // [ {x, y, r, maxR, color, alpha} ]
+
+class FireworkParticle {
+    constructor(x, y, vx, vy, color, size) {
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.color = color;
+        this.size = size;
+        this.alpha = rand(0.85, 1.0);
+        this.decay = rand(0.012, 0.028); // glowing longer trail
+        this.gravity = rand(0.06, 0.12);
+    }
+
+    update(dt) {
+        this.x += this.vx * dt;
+        this.y += this.vy * dt;
+        this.vy += this.gravity * dt;
+        this.vx *= 0.985;
+        this.vy *= 0.985;
+        this.alpha -= this.decay * dt;
+    }
+
+    draw(ctx) {
+        if (this.alpha <= 0) return;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.globalAlpha = this.alpha;
+        ctx.shadowColor = this.color;
+        ctx.shadowBlur = 10 * this.alpha;
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
+const fireworkParticles = [];
+
+window.addEventListener('mousemove', e => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+    if (!mouse.active) {
+        mouse.active = true;
+    }
+});
+
+window.addEventListener('mouseleave', () => { mouse.active = false; });
+
+// ── Left/Any click → Scatter back to atoms if in molecule mode ──
+window.addEventListener('click', e => {
+    if (isMoleculeMode && !isExploded) {
+        isMoleculeMode = false;
+        document.getElementById('info').innerHTML = 'ПКМ — ЗІБРАТИ В МОЛЕКУЛУ';
+        ripples.push({ x: e.clientX, y: e.clientY, r: 0, maxR: 260, color: '251,113,133', alpha: 0.85 });
+    }
+});
+
+// ── Middle click (wheel click) → Explosion ──
+window.addEventListener('mousedown', e => {
+    if (e.button === 1) {
+        e.preventDefault(); // prevent auto-scroll cursor
+        if (isMoleculeMode && !isExploded) {
+            isExploded = true;
+            explosionFlash = 1.0;
+            document.getElementById('info').innerHTML = ''; // Hide hint
+
+            // Massive visual flash wave
+            ripples.push({ x: e.clientX, y: e.clientY, r: 0, maxR: Math.max(W, H) * 1.5, color: '255,255,255', alpha: 1.0 });
+
+            // Detonate each atom like a firework spark shell!
+            for (const atom of atoms) {
+                const dx = atom.x - e.clientX;
+                const dy = atom.y - e.clientY;
+                const anglePush = Math.atan2(dy, dx);
+                const speedPush = rand(12, 22); // outward push velocity
+                const pushVx = Math.cos(anglePush) * speedPush;
+                const pushVy = Math.sin(anglePush) * speedPush;
+
+                const sparkCount = randInt(10, 16);
+                for (let k = 0; k < sparkCount; k++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = rand(1.2, 5.5);
+                    const color = Math.random() < 0.4 ? atom.pal.nucleus : atom.pal.electron;
+
+                    // Combined spark velocity: outward push + radial firework blast
+                    const vx = pushVx + Math.cos(angle) * speed;
+                    const vy = pushVy + Math.sin(angle) * speed;
+
+                    fireworkParticles.push(new FireworkParticle(
+                        atom.x,
+                        atom.y,
+                        vx,
+                        vy,
+                        color,
+                        rand(1.0, 2.5)
+                    ));
+                }
+
+                // Disappear the atom itself instantly
+                atom.scale = 0;
+                atom.vx = pushVx;
+                atom.vy = pushVy;
+            }
+
+            // Show glassmorphic reset button
+            setTimeout(() => {
+                const btn = document.getElementById('reset-btn');
+                if (btn) btn.classList.add('visible');
+            }, 1100);
+        }
+    }
+});
+
+// Disable autoscroll behavior on auxclick for wheel click
+window.addEventListener('auxclick', e => {
+    if (e.button === 1) {
+        e.preventDefault();
+    }
+});
+
+// ── Reset Button listener ──
+document.getElementById('reset-btn').addEventListener('click', e => {
+    e.stopPropagation();
+    const btn = document.getElementById('reset-btn');
+    if (btn) btn.classList.remove('visible');
+
+    isExploded = false;
+    isMoleculeMode = false;
+    fireworkParticles.length = 0; // Clear particles
+    document.getElementById('info').innerHTML = 'ПКМ — ЗІБРАТИ В МОЛЕКУЛУ';
+
+    // Inward implosion wave
+    ripples.push({ x: W / 2, y: H / 2, r: 500, maxR: 0, color: '129,140,248', alpha: 0.95 });
+
+    // Instantly spread atoms far off screen to implode back elegantly
+    for (const atom of atoms) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = Math.max(W, H) * rand(1.1, 1.4);
+        atom.x = W / 2 + Math.cos(angle) * dist;
+        atom.y = H / 2 + Math.sin(angle) * dist;
+        atom.vx = 0;
+        atom.vy = 0;
+        atom.scale = 0.1;
+    }
+});
+
+// ── Right click (contextmenu) → Assemble into molecule ──
+window.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    if (isExploded) return; // ignore during explosion
+    if (!isMoleculeMode) {
+        isMoleculeMode = true;
+        document.getElementById('info').innerHTML = 'КЛІК НА МОЛЕКУЛУ — РОЗСИПАТИ В АТОМИ<br><span style="font-size:0.6rem;opacity:0.6;letter-spacing:1px;">КЛІК КОЛІЩАТКОМ — ВИБУХ</span>';
+        ripples.push({ x: e.clientX, y: e.clientY, r: 0, maxR: 300, color: '129,140,248', alpha: 0.95 });
+    } else {
+        isMoleculeMode = false;
+        document.getElementById('info').innerHTML = 'ПКМ — ЗІБРАТИ В МОЛЕКУЛУ';
+        ripples.push({ x: e.clientX, y: e.clientY, r: 0, maxR: 260, color: '251,113,133', alpha: 0.85 });
+    }
+});
+
+// ─── Palette ─────────────────────────────────────────────────────
+const PALETTES = [
+    { nucleus: '#818cf8', orbit: 'rgba(129,140,248,', electron: '#c7d2fe' },
+    { nucleus: '#34d399', orbit: 'rgba(52,211,153,',  electron: '#a7f3d0' },
+    { nucleus: '#fb7185', orbit: 'rgba(251,113,133,', electron: '#fecdd3' },
+    { nucleus: '#38bdf8', orbit: 'rgba(56,189,248,',  electron: '#bae6fd' },
+    { nucleus: '#a78bfa', orbit: 'rgba(167,139,250,', electron: '#ddd6fe' },
+    { nucleus: '#fbbf24', orbit: 'rgba(251,191,36,',  electron: '#fde68a' },
+];
+
+function randPalette() { return PALETTES[Math.floor(Math.random() * PALETTES.length)]; }
+function rand(a, b)     { return a + Math.random() * (b - a); }
+function randInt(a, b)  { return Math.floor(rand(a, b + 1)); }
+
+// ─── Atom class ──────────────────────────────────────────────────
+class Atom {
+    constructor(x, y) {
+        this.originX = x;
+        this.originY = y;
+        this.x = x;
+        this.y = y;
+        this.vx = 0;
+        this.vy = 0;
+
+        this.pal = randPalette();
+
+        // nucleus
+        this.nucleusR = rand(3, 7);
+
+        // number of electron shells (1–3)
+        this.shells = Array.from({ length: randInt(1, 3) }, (_, i) => ({
+            radius:    this.nucleusR * 2.5 + i * (this.nucleusR * 3 + rand(2, 6)),
+            speed:     rand(0.008, 0.028) * (Math.random() < 0.5 ? 1 : -1),
+            tilt:      rand(0, Math.PI),        // orbit tilt angle
+            electrons: Array.from({ length: randInt(1, 3) }, (_, j) => ({
+                angle: (j / 3) * Math.PI * 2 + rand(0, 0.5),
+                size:  rand(1.2, 2.8),
+                trail: [],                       // glow trail
+            })),
+        }));
+
+        // rotation of whole atom (slow wobble)
+        this.wobble = rand(0, Math.PI * 2);
+        this.wobbleSpeed = rand(0.003, 0.009) * (Math.random() < 0.5 ? 1 : -1);
+
+        // pulse phase for nucleus glow
+        this.pulse = rand(0, Math.PI * 2);
+        this.pulseSpeed = rand(0.04, 0.09);
+
+        // scale factor
+        this.scale = 1;
+
+        // 3D molecule target coordinates
+        this.molX = 0;
+        this.molY = 0;
+        this.molZ = 0;
+        this.molRole = '';
+        this.molIndex = 0;
+        this.molRungIndex = 0;
+        this.molRungPos = 0;
+        this.zDepth = 0;
+
+        // references to bonded atoms
+        this.bondTargets = [];
+    }
+
+    // ── update position ──
+    update(dt) {
+        this.pulse  += this.pulseSpeed;
+        this.wobble += this.wobbleSpeed;
+
+        // spin electrons
+        for (const shell of this.shells) {
+            for (const el of shell.electrons) {
+                el.angle += shell.speed;
+            }
+        }
+
+        // ── determine target position ──
+        let tx = this.originX;
+        let ty = this.originY;
+        let springK  = 0.06;   // stiffness
+        let dampK    = 0.78;   // damping
+
+        if (isMoleculeMode) {
+            // 3D rotation around Y and X axis
+            let cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+            let y1 = this.molY * cosX - this.molZ * sinX;
+            let z1 = this.molY * sinX + this.molZ * cosX;
+            let x1 = this.molX;
+
+            let cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+            let rx = x1 * cosY - z1 * sinY;
+            let rz = x1 * sinY + z1 * cosY;
+            let ry = y1;
+
+            this.zDepth = rz;
+            const F = 750 / (750 + rz);
+
+            tx = W / 2 + rx * F;
+            ty = H / 2 + ry * F;
+
+            springK = 0.08;
+            dampK   = 0.82;
+
+            // depth scale factor
+            this.scale = (0.7 + (1 - (rz + 150) / 300) * 0.4) * F;
+        } else if (isExploded) {
+            this.zDepth = 0;
+            // No target springs during explosion, just inertial flying
+            tx = this.x;
+            ty = this.y;
+            springK = 0;
+            dampK = 1.0;
+
+            // fly with inertia
+            this.x += this.vx;
+            this.y += this.vy;
+            this.vx *= 0.978;
+            this.vy *= 0.978;
+
+            // shrink as they fly off
+            this.scale += (0.42 - this.scale) * 0.025;
+        } else {
+            this.zDepth = 0;
+            if (mouse.active) {
+                // gentle hover attraction
+                const dx   = mouse.x - this.x;
+                const dy   = mouse.y - this.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const maxD = 600;
+                if (dist < maxD) {
+                    const str = (1 - dist / maxD) ** 2.2 * 0.18;
+                    tx = this.originX + dx * str * 6;
+                    ty = this.originY + dy * str * 6;
+                    this.scale = 0.75 + str * 1.8;
+                } else {
+                    this.scale += (1 - this.scale) * 0.04;
+                }
+            } else {
+                this.scale += (1 - this.scale) * 0.04;
+            }
+        }
+
+        // spring physics
+        if (!isExploded) {
+            const ex = tx - this.x;
+            const ey = ty - this.y;
+            this.vx += ex * springK;
+            this.vy += ey * springK;
+            this.vx *= dampK;
+            this.vy *= dampK;
+            this.x  += this.vx;
+            this.y  += this.vy;
+        }
+    }
+
+    // ── draw ──
+    draw(ctx) {
+        if (isExploded || this.scale <= 0.01) return;
+        const s = this.scale;
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.wobble);
+        ctx.scale(s, s);
+
+        const pulseGlow = 0.5 + 0.5 * Math.sin(this.pulse);
+
+        // nucleus glow halo
+        const halR = this.nucleusR * (2.5 + pulseGlow * 1.2);
+        const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, halR);
+        halo.addColorStop(0, this.pal.orbit + (0.3 + pulseGlow * 0.25) + ')');
+        halo.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.beginPath();
+        ctx.arc(0, 0, halR, 0, Math.PI * 2);
+        ctx.fillStyle = halo;
+        ctx.fill();
+
+        // nucleus core
+        const g = ctx.createRadialGradient(-this.nucleusR * 0.3, -this.nucleusR * 0.3, 0, 0, 0, this.nucleusR);
+        g.addColorStop(0, '#ffffff');
+        g.addColorStop(0.4, this.pal.electron);
+        g.addColorStop(1,   this.pal.nucleus);
+        ctx.beginPath();
+        ctx.arc(0, 0, this.nucleusR, 0, Math.PI * 2);
+        ctx.fillStyle = g;
+        ctx.shadowColor = this.pal.nucleus;
+        ctx.shadowBlur  = 10 * pulseGlow;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // shells & electrons
+        for (const shell of this.shells) {
+            const r = shell.radius;
+            const orbitAlpha = 0.08 + pulseGlow * 0.06;
+
+            // ellipse orbit (tilted)
+            ctx.save();
+            ctx.rotate(shell.tilt);
+            ctx.beginPath();
+            ctx.ellipse(0, 0, r, r * 0.38, 0, 0, Math.PI * 2);
+            ctx.strokeStyle = this.pal.orbit + orbitAlpha + ')';
+            ctx.lineWidth = 0.6;
+            ctx.stroke();
+            ctx.restore();
+
+            for (const el of shell.electrons) {
+                // 3D-like elliptical position
+                const cosT  = Math.cos(shell.tilt);
+                const sinT  = Math.sin(shell.tilt);
+                const ex0   = r * Math.cos(el.angle);
+                const ey0   = r * 0.38 * Math.sin(el.angle);
+                const ex    = ex0 * cosT - ey0 * sinT;
+                const ey    = ex0 * sinT + ey0 * cosT;
+
+                // depth cue: electrons "behind" are dimmer & smaller
+                const depth = 0.5 + 0.5 * Math.sin(el.angle);
+
+                // glow trail
+                ctx.beginPath();
+                ctx.arc(ex, ey, el.size * 3.5 * depth, 0, Math.PI * 2);
+                ctx.fillStyle = this.pal.orbit + (0.12 * depth) + ')';
+                ctx.fill();
+
+                // electron body
+                const eg = ctx.createRadialGradient(ex, ey, 0, ex, ey, el.size * 2);
+                eg.addColorStop(0, '#fff');
+                eg.addColorStop(0.5, this.pal.electron);
+                eg.addColorStop(1, 'rgba(0,0,0,0)');
+
+                ctx.beginPath();
+                ctx.arc(ex, ey, el.size * (0.7 + depth * 0.6), 0, Math.PI * 2);
+                ctx.fillStyle = eg;
+                ctx.shadowColor = this.pal.electron;
+                ctx.shadowBlur  = 6 * depth;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        ctx.restore();
+    }
+}
+
+// ─── Create atoms ────────────────────────────────────────────────
+const ATOM_COUNT = 280;
+const atoms = [];
+
+function initMoleculeCoordinates() {
+    const M = atoms.length;
+    M_A = Math.floor(M * 0.33);
+    M_B = Math.floor(M * 0.33);
+    M_R = M - M_A - M_B;
+
+    const K = Math.ceil(M_R / N_rungs);
+
+    // Setup base dimensions
+    const L = H * 0.62;
+    const R = Math.min(W, H) * 0.16;
+
+    // Reset bondTargets for all atoms
+    for (const a of atoms) {
+        a.bondTargets = [];
+    }
+
+    // Helix A
+    for (let i = 0; i < M_A; i++) {
+        const atom = atoms[i];
+        atom.molRole = 'helixA';
+        atom.molIndex = i;
+
+        const t = i / (M_A - 1 || 1);
+        const theta = t * 2.5 * Math.PI * 2;
+        atom.molX = R * Math.cos(theta);
+        atom.molY = (t - 0.5) * L;
+        atom.molZ = R * Math.sin(theta);
+    }
+
+    // Helix B
+    for (let i = 0; i < M_B; i++) {
+        const atom = atoms[M_A + i];
+        atom.molRole = 'helixB';
+        atom.molIndex = i;
+
+        const t = i / (M_B - 1 || 1);
+        const theta = t * 2.5 * Math.PI * 2 + Math.PI;
+        atom.molX = R * Math.cos(theta);
+        atom.molY = (t - 0.5) * L;
+        atom.molZ = R * Math.sin(theta);
+    }
+
+    // Rungs
+    for (let i = 0; i < M_R; i++) {
+        const atom = atoms[M_A + M_B + i];
+        atom.molRole = 'rung';
+        const r = Math.floor(i / K);
+        const j = i % K;
+        atom.molRungIndex = r;
+        atom.molRungPos = (j + 1) / (K + 1);
+
+        const t_r = 0.08 + 0.84 * (r / (N_rungs - 1 || 1));
+        const theta_r = t_r * 2.5 * Math.PI * 2;
+        const ax = R * Math.cos(theta_r);
+        const ay = (t_r - 0.5) * L;
+        const az = R * Math.sin(theta_r);
+        const bx = R * Math.cos(theta_r + Math.PI);
+        const by = (t_r - 0.5) * L;
+        const bz = R * Math.sin(theta_r + Math.PI);
+
+        const u = atom.molRungPos;
+        atom.molX = ax + u * (bx - ax);
+        atom.molY = ay + u * (by - ay);
+        atom.molZ = az + u * (bz - az);
+    }
+
+    // Connect Helix A bonds
+    for (let i = 0; i < M_A - 1; i++) {
+        atoms[i].bondTargets.push(atoms[i + 1]);
+    }
+
+    // Connect Helix B bonds
+    for (let i = 0; i < M_B - 1; i++) {
+        atoms[M_A + i].bondTargets.push(atoms[M_A + i + 1]);
+    }
+
+    // Connect Rung bonds
+    for (let r = 0; r < N_rungs; r++) {
+        const t_r = 0.08 + 0.84 * (r / (N_rungs - 1 || 1));
+        const idxA = Math.round(t_r * (M_A - 1));
+        const idxB = Math.round(t_r * (M_B - 1));
+        const a = atoms[idxA];
+        const b = atoms[M_A + idxB];
+        if (!a || !b) continue;
+
+        const rungAtoms = atoms.slice(M_A + M_B).filter(atom => atom.molRungIndex === r)
+                               .sort((x, y) => x.molRungPos - y.molRungPos);
+
+        if (rungAtoms.length > 0) {
+            a.bondTargets.push(rungAtoms[0]);
+            for (let k = 0; k < rungAtoms.length - 1; k++) {
+                rungAtoms[k].bondTargets.push(rungAtoms[k + 1]);
+            }
+            rungAtoms[rungAtoms.length - 1].bondTargets.push(b);
+        } else {
+            a.bondTargets.push(b);
+        }
+    }
+}
+
+function spawnAtoms() {
+    atoms.length = 0;
+    const cols = Math.round(Math.sqrt(ATOM_COUNT * W / H));
+    const rows = Math.ceil(ATOM_COUNT / cols);
+    const cellW = W / cols;
+    const cellH = H / rows;
+
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            const x = (c + 0.5) * cellW + rand(-cellW * 0.25, cellW * 0.25);
+            const y = (r + 0.5) * cellH + rand(-cellH * 0.25, cellH * 0.25);
+            atoms.push(new Atom(x, y));
+        }
+    }
+
+    initMoleculeCoordinates();
+}
+
+spawnAtoms();
+
+window.addEventListener('resize', () => {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    spawnAtoms();
+});
+
+// ─── Ripple wave draw ─────────────────────────────────────────────
+function updateRipples() {
+    for (let i = ripples.length - 1; i >= 0; i--) {
+        const rp = ripples[i];
+        rp.r     += (rp.maxR - rp.r) * 0.1 + 1.5;
+        rp.alpha *= 0.93;
+        if (rp.alpha < 0.01) { ripples.splice(i, 1); continue; }
+
+        ctx.beginPath();
+        ctx.arc(rp.x, rp.y, rp.r, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(${rp.color},${rp.alpha})`;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = `rgba(${rp.color},0.5)`;
+        ctx.shadowBlur  = 20;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+    }
+}
+
+// ─── Custom cursor ────────────────────────────────────────────────
+function drawCursor(x, y, t) {
+    const color = isMoleculeMode ? '52,211,153' : '129,140,248';
+    const r = isMoleculeMode
+        ? 14 + 5 * Math.sin(t * 0.12)
+        : 10 + 4 * Math.sin(t * 0.05);
+
+    ctx.save();
+
+    // outer ring
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(${color},0.75)`;
+    ctx.lineWidth = isMoleculeMode ? 2 : 1.5;
+    ctx.shadowColor = `rgba(${color},1)`;
+    ctx.shadowBlur  = isMoleculeMode ? 20 : 12;
+    ctx.stroke();
+
+    // inner dot
+    ctx.beginPath();
+    ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = isMoleculeMode ? `rgba(${color},1)` : '#ffffff';
+    ctx.shadowBlur = 8;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // crosshair lines in molecule mode
+    if (isMoleculeMode) {
+        const len = r * 0.6;
+        ctx.strokeStyle = `rgba(${color},0.4)`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x - r - len, y); ctx.lineTo(x - r + 2, y);
+        ctx.moveTo(x + r - 2,   y); ctx.lineTo(x + r + len, y);
+        ctx.moveTo(x, y - r - len); ctx.lineTo(x, y - r + 2);
+        ctx.moveTo(x, y + r - 2);   ctx.lineTo(x, y + r + len);
+        ctx.stroke();
+    }
+
+    ctx.restore();
+}
+
+// ─── Draw chemical bonds for molecule ─────────────────────────────
+function drawBonds() {
+    if (!isMoleculeMode || isExploded) return;
+    ctx.save();
+    ctx.lineWidth = 0.95;
+    for (const atom of atoms) {
+        for (const target of atom.bondTargets) {
+            ctx.beginPath();
+            ctx.moveTo(atom.x, atom.y);
+            ctx.lineTo(target.x, target.y);
+            ctx.strokeStyle = atom.pal.orbit + '0.15)';
+            ctx.stroke();
+        }
+    }
+    ctx.restore();
+}
+
+// ─── Render loop ─────────────────────────────────────────────────
+let frame    = 0;
+let lastTime = performance.now();
+
+function loop(now) {
+    requestAnimationFrame(loop);
+    const dt = Math.min((now - lastTime) / 16, 3);
+    lastTime = now;
+    frame++;
+
+    // update auto-rotation Y
+    rotY_auto += 0.007 * dt;
+
+    if (isMoleculeMode) {
+        // smooth tilt rotation based on mouse position
+        const targetRotX = mouse.active ? ((mouse.y - H / 2) / H) * 0.8 : 0;
+        const targetRotY = rotY_auto + (mouse.active ? ((mouse.x - W / 2) / W) * 1.2 : 0);
+        rotX += (targetRotX - rotX) * 0.05 * dt;
+        rotY += (targetRotY - rotY) * 0.05 * dt;
+    }
+
+    // dark fade — slightly more transparent for smooth glow trails
+    ctx.fillStyle = 'rgba(3,3,10,0.32)';
+    ctx.fillRect(0, 0, W, H);
+
+    // ripples drawn beneath atoms
+    updateRipples();
+
+    // 1. Update all atoms
+    for (const atom of atoms) {
+        atom.update(dt);
+    }
+
+    // 2. Draw molecular bonds
+    drawBonds();
+
+    // 3. Update & Draw firework particles
+    if (isExploded) {
+        for (let i = fireworkParticles.length - 1; i >= 0; i--) {
+            const p = fireworkParticles[i];
+            p.update(dt);
+            if (p.alpha <= 0) {
+                fireworkParticles.splice(i, 1);
+            } else {
+                p.draw(ctx);
+            }
+        }
+    }
+
+    // 4. Sort by depth if in molecule mode (Painter's algorithm)
+    if (isMoleculeMode) {
+        atoms.sort((a, b) => b.zDepth - a.zDepth);
+    }
+
+    // 5. Draw all atoms
+    for (const atom of atoms) {
+        atom.draw(ctx);
+    }
+
+    // 6. Draw explosion brightness flash overlay
+    if (explosionFlash > 0) {
+        explosionFlash -= 0.025 * dt;
+        if (explosionFlash < 0) explosionFlash = 0;
+        ctx.fillStyle = `rgba(255, 255, 255, ${explosionFlash * 0.92})`;
+        ctx.fillRect(0, 0, W, H);
+    }
+
+    if (mouse.active) drawCursor(mouse.x, mouse.y, frame);
+}
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

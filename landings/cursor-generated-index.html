@@ -176,8 +176,9 @@
       inset: var(--nav-h) 0 0 0;
       background: #0a0c10f5;
       backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
       padding: var(--space-3);
-      z-index: 99;
+      z-index: 90;
     }
 
     .nav-drawer.open { display: block; }
@@ -750,16 +751,17 @@
         </svg>
       </button>
     </div>
-    <div class="nav-drawer" id="nav-drawer" hidden>
-      <ul>
-        <li><a href="#about">Про мене</a></li>
-        <li><a href="#skills">Навички</a></li>
-        <li><a href="#projects">Проєкти</a></li>
-        <li><a href="#experience">Досвід</a></li>
-        <li><a href="#contact">Контакт</a></li>
-      </ul>
-    </div>
   </header>
+
+  <div class="nav-drawer" id="nav-drawer" hidden role="dialog" aria-modal="true" aria-label="Мобільне меню">
+    <ul>
+      <li><a href="#about">Про мене</a></li>
+      <li><a href="#skills">Навички</a></li>
+      <li><a href="#projects">Проєкти</a></li>
+      <li><a href="#experience">Досвід</a></li>
+      <li><a href="#contact">Контакт</a></li>
+    </ul>
+  </div>
 
   <div class="wrap">
     <main id="main">

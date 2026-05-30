@@ -317,6 +317,7 @@
     let W = 0, H = 0, DPR = 1, raf = 0, last = 0;
     let cameraY = 0, highestY = 0, score = 0, comboSpring = 0;
     let mobileLeft = false, mobileRight = false, tiltValue = 0, tiltAllowed = false;
+    let swipeStart = null;
     let beat = 0, beatStep = 0, toastTimer = 0;
     const world = {
       player: null,
@@ -373,6 +374,13 @@
     }
     function show(name) {
       state.mode = name;
+      if (name !== 'playing') {
+        mobileLeft = false;
+        mobileRight = false;
+        swipeStart = null;
+        keys.left = false;
+        keys.right = false;
+      }
       for (const k in screens) screens[k].classList.remove('active');
       if (screens[name]) screens[name].classList.add('active');
       document.getElementById('mobileControls').style.display = (name === 'playing' && window.innerWidth < 900) ? 'block' : 'none';
@@ -385,9 +393,18 @@
       }));
     }
     function loadSettings() {
+      const defaults = { skin: 'bunny', theme: 'day', sound: true, vibrate: true, tilt: false, music: false };
       try {
-        Object.assign(state, JSON.parse(storage.get(STORAGE.settings, '{}')) || {});
-      } catch {}
+        Object.assign(state, defaults, JSON.parse(storage.get(STORAGE.settings, '{}')) || {});
+      } catch {
+        Object.assign(state, defaults);
+      }
+      state.skin = ['bunny', 'alien', 'ninja'].includes(state.skin) ? state.skin : 'bunny';
+      state.theme = ['day', 'night', 'space', 'jungle'].includes(state.theme) ? state.theme : 'day';
+      state.sound = state.sound !== false;
+      state.vibrate = state.vibrate !== false;
+      state.tilt = !!state.tilt;
+      state.music = !!state.music;
       state.high = Number(storage.get(STORAGE.high, '0') || 0);
       try { state.scores = JSON.parse(storage.get(STORAGE.scores, '[]')) || []; } catch { state.scores = []; }
       try { state.ach = JSON.parse(storage.get(STORAGE.ach, '{}')) || {}; } catch { state.ach = {}; }
@@ -454,13 +471,11 @@
       world.player.y = startPlatform.y - world.player.h;
       world.player.vx = 0;
       world.player.vy = 0;
-      const kinds = ['normal', 'normal', 'normal', 'moving', 'breakable', 'spring', 'disappear'];
+      const baseY = H - 150;
       for (let i = 0; i < 9; i++) {
-        const kind = i === 0 ? 'normal' : choice(kinds);
-        const p = addPlatform(clamp(rand(24, W - 130), 24, Math.max(24, W - 130)), H - 70 - i * rand(60, 95), kind);
-        if (Math.random() < .18 || kind === 'spring') addBonus(choice(['spring', 'rocket', 'hat']), p);
-        if (i >= 2 && Math.random() < .12) addMonster(p);
-        if (i >= 7 && Math.random() < .06) addUfo(clamp(rand(40, W - 100), 30, W - 100), p.y - rand(120, 180));
+        const y = baseY - i * rand(62, 84);
+        const x = clamp(rand(24, W - 130), 24, Math.max(24, W - 130));
+        addPlatform(x, y, 'normal');
       }
       highestY = Math.min(...world.platforms.map(p => p.y));
       drawMenuStats();
@@ -472,12 +487,13 @@
         highestY -= rand(60, 100);
         const s = score;
         const roll = Math.random() * 100;
-        const kind = roll < 60 ? 'normal' : roll < 75 + Math.min(10, s * .02) ? 'moving' : roll < 85 + Math.min(10, s * .02) ? 'breakable' : roll < 95 ? 'spring' : 'disappear';
+        const kind = roll < 60 ? 'normal' : roll < 75 ? 'moving' : roll < 85 ? 'breakable' : roll < 95 ? 'spring' : 'disappear';
         const p = addPlatform(clamp(rand(24, W - 130), 24, Math.max(24, W - 130)), highestY, kind);
         if (Math.random() < .2) addBonus(choice(['spring', 'rocket', 'hat']), p);
-        if (s > 6 && Math.random() < .14) addMonster(p);
-        if (s > 16 && Math.random() < .08) addUfo(clamp(rand(40, W - 100), 30, W - 100), p.y - rand(130, 220));
-        if (s > 28 && Math.random() < .06) addBlackhole(clamp(rand(50, W - 50), 50, W - 50), p.y - rand(120, 260));
+        const enemyRamp = clamp(s / 25, 0, 1);
+        if (s > 8 && Math.random() < 0.05 + enemyRamp * 0.08) addMonster(p);
+        if (s > 18 && Math.random() < 0.02 + enemyRamp * 0.05) addUfo(clamp(rand(40, W - 100), 30, W - 100), p.y - rand(130, 220));
+        if (s > 28 && Math.random() < 0.01 + enemyRamp * 0.04) addBlackhole(clamp(rand(50, W - 50), 50, W - 50), p.y - rand(120, 260));
       }
     }
     function clearMenu() {
@@ -957,22 +973,32 @@
         if (side === 'right') mobileRight = true;
         audio.ensure();
       };
-      const up = () => { mobileLeft = false; mobileRight = false; };
+      const up = () => { mobileLeft = false; mobileRight = false; swipeStart = null; };
       ui.leftZone.addEventListener('pointerdown', () => down('left'));
       ui.rightZone.addEventListener('pointerdown', () => down('right'));
+      addEventListener('pointerdown', e => {
+        if (state.mode !== 'playing' || e.target === ui.leftZone || e.target === ui.rightZone) return;
+        swipeStart = { x: e.clientX, y: e.clientY };
+      }, { passive: true });
+      addEventListener('pointermove', e => {
+        if (state.mode !== 'playing' || !swipeStart) return;
+        const dx = e.clientX - swipeStart.x;
+        mobileLeft = dx < -18;
+        mobileRight = dx > 18;
+      }, { passive: true });
       addEventListener('pointerup', up);
       addEventListener('pointercancel', up);
-      addEventListener('pointermove', e => {
-        if (state.mode !== 'playing') return;
-        if (!e.isPrimary) return;
-      }, { passive: true });
       addEventListener('touchstart', e => {
-        if (state.mode !== 'playing') return;
-        if (!e.touches || !e.touches[0]) return;
-        mobileLeft = e.touches[0].clientX < innerWidth / 2;
-        mobileRight = !mobileLeft;
+        if (state.mode !== 'playing' || !e.touches || !e.touches[0]) return;
+        swipeStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       }, { passive: true });
-      addEventListener('touchend', () => { mobileLeft = false; mobileRight = false; }, { passive: true });
+      addEventListener('touchmove', e => {
+        if (state.mode !== 'playing' || !swipeStart || !e.touches || !e.touches[0]) return;
+        const dx = e.touches[0].clientX - swipeStart.x;
+        mobileLeft = dx < -18;
+        mobileRight = dx > 18;
+      }, { passive: true });
+      addEventListener('touchend', up, { passive: true });
       addEventListener('deviceorientation', e => {
         if (!state.tilt || !tiltAllowed) return;
         tiltValue = clamp((typeof e.gamma === 'number' ? e.gamma : 0) / 24, -1, 1);

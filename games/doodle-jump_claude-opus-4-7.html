@@ -111,24 +111,26 @@
   }
   #mobileControls {
     position: absolute;
-    bottom: 20px;
+    bottom: 6px;
     left: 0; right: 0;
     display: none;
     justify-content: space-between;
-    padding: 0 20px;
+    padding: 0 6px;
     z-index: 5;
+    pointer-events: none;
   }
   .touch-btn {
-    width: 80px; height: 80px;
-    background: rgba(255,255,255,0.6);
-    border: 3px solid #333;
+    width: 64px; height: 64px;
+    background: rgba(255,255,255,0.28);
+    border: 2px solid rgba(0,0,0,0.35);
     border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
-    font-size: 36px; font-weight: bold;
-    color: #333;
+    font-size: 28px; font-weight: bold;
+    color: rgba(0,0,0,0.55);
     user-select: none;
+    pointer-events: auto;
   }
-  .touch-btn:active { background: rgba(255,255,255,0.9); }
+  .touch-btn:active { background: rgba(255,255,255,0.7); color: #000; }
   .skin-picker {
     display: flex; justify-content: center; gap: 12px; margin: 12px 0;
   }
@@ -220,6 +222,7 @@
   <div id="settingsScreen" class="overlay hidden">
     <h2>Settings</h2>
     <div><div class="toggle on" id="soundToggle">🔊 Sound: ON</div></div>
+    <div><div class="toggle on" id="musicToggle">🎵 Music: ON</div></div>
     <div><div class="toggle on" id="tiltToggle">📱 Tilt: ON</div></div>
     <div><div class="toggle" id="vibrateToggle">📳 Vibrate: OFF</div></div>
     <br>
@@ -283,10 +286,14 @@ let score = 0;
 let cameraY = 0;
 let highScore = +localStorage.getItem('dj_high') || 0;
 let topScores = JSON.parse(localStorage.getItem('dj_scores') || '[]');
-let settings = JSON.parse(localStorage.getItem('dj_settings') || '{"sound":true,"tilt":true,"vibrate":false,"skin":"bunny","theme":"day"}');
+let settings = JSON.parse(localStorage.getItem('dj_settings') || '{"sound":true,"music":true,"tilt":true,"vibrate":false,"skin":"bunny","theme":"day"}');
+if (settings.music === undefined) settings.music = true;
 let achievements = JSON.parse(localStorage.getItem('dj_achievements') || '{}');
 let springStreak = 0;
+let springStreakDecay = 0;
 let sessionAchievements = [];
+let runStats = { stomps: 0, rockets: 0, greenFreeFrames: 0 };
+const achievementToasts = [];
 
 let audioCtx = null;
 function getAudioCtx() {
@@ -316,8 +323,24 @@ const Sound = {
   break: () => beep(150, 0.2, 'sawtooth', 0.15, -100),
   gameover: () => { beep(200, 0.3, 'square', 0.15, -150); setTimeout(()=>beep(80, 0.5, 'sawtooth', 0.15, -50), 200); },
   ding: () => { beep(880, 0.08, 'sine', 0.12); setTimeout(()=>beep(1320, 0.12, 'sine', 0.1), 60); },
+  stomp: () => { beep(180, 0.08, 'square', 0.18, -80); setTimeout(()=>beep(720, 0.1, 'triangle', 0.12, 200), 60); },
   bgTick: () => beep(660, 0.04, 'triangle', 0.02),
 };
+
+const MUSIC_NOTES = [262, 330, 392, 523, 392, 330, 294, 247];
+let musicStep = 0, musicInterval = null;
+function musicTick() {
+  if (!settings.sound || !settings.music || state !== STATE.PLAYING) return;
+  beep(MUSIC_NOTES[musicStep % MUSIC_NOTES.length], 0.18, 'triangle', 0.03);
+  musicStep++;
+}
+function startMusic() {
+  if (musicInterval) return;
+  musicInterval = setInterval(musicTick, 280);
+}
+function stopMusic() {
+  if (musicInterval) { clearInterval(musicInterval); musicInterval = null; }
+}
 
 function vibrate(ms) {
   if (settings.vibrate && navigator.vibrate) navigator.vibrate(ms);
@@ -363,12 +386,17 @@ window.addEventListener('deviceorientation', e => {
   }
 });
 
+function mobileButtonsActive() {
+  return !document.getElementById('mobileControls').classList.contains('hidden');
+}
 canvas.addEventListener('touchstart', e => {
+  if (mobileButtonsActive()) return;
   const rect = canvas.getBoundingClientRect();
   const x = e.touches[0].clientX - rect.left;
   if (x < rect.width / 2) keys.left = true; else keys.right = true;
 });
 canvas.addEventListener('touchend', () => {
+  if (mobileButtonsActive()) return;
   keys.left = false; keys.right = false;
 });
 
@@ -376,6 +404,7 @@ class Player {
   constructor() { this.reset(); }
   reset() {
     this.x = W/2; this.y = H - 100;
+    this.prevY = this.y;
     this.vx = 0; this.vy = JUMP_VEL;
     this.w = 40; this.h = 44;
     this.facing = 1;
@@ -409,6 +438,7 @@ class Player {
     } else {
       this.vy += GRAVITY;
     }
+    this.prevY = this.y;
     this.y += this.vy;
 
     if (this.squash > 0) this.squash -= 0.1;
@@ -642,12 +672,15 @@ class Platform {
     return { x: this.x - this.w/2, y: this.y - this.h/2, w: this.w, h: this.h };
   }
   hitTop(p) {
-    if (this.broken || (this.type === PLAT_TYPES.DISAPPEAR && this.fadeT > 0.3)) return false;
-    const pb = p.bounds();
+    if (this.broken) return false;
+    if (this.type === PLAT_TYPES.DISAPPEAR && (this.touched || this.fadeT > 0)) return false;
+    if (p.vy < 0) return false;
     const tb = this.bounds();
-    return p.vy >= 0 &&
-      pb.x < tb.x + tb.w && pb.x + pb.w > tb.x &&
-      pb.y + pb.h > tb.y && pb.y + pb.h < tb.y + tb.h + 10;
+    const pb = p.bounds();
+    if (pb.x >= tb.x + tb.w || pb.x + pb.w <= tb.x) return false;
+    const prevBottom = p.prevY + p.h/2;
+    const currBottom = pb.y + pb.h;
+    return prevBottom <= tb.y + 2 && currBottom >= tb.y;
   }
   onTouch(p) {
     this.touched = true;
@@ -658,8 +691,10 @@ class Platform {
       Sound.spring();
       vibrate(30);
       springStreak++;
+      springStreakDecay = 90;
       checkAchievement('springs5', springStreak >= 5);
       spawnParticles(p.x, p.y + p.h/2, '#f1c40f', 10);
+      spawnPopup(p.x, p.y - 20, 'SPRING!', '#e67e22');
       return;
     }
     if (this.bonus === 'rocket') {
@@ -668,7 +703,10 @@ class Platform {
       Sound.rocket();
       vibrate(50);
       springStreak = 0;
+      runStats.rockets++;
+      checkAchievement('rockets3', runStats.rockets >= 3);
       spawnParticles(p.x, p.y, '#e74c3c', 12);
+      spawnPopup(p.x, p.y - 20, 'ROCKET!', '#e74c3c');
       return;
     }
     if (this.bonus === 'hat') {
@@ -678,6 +716,7 @@ class Platform {
       vibrate(30);
       springStreak = 0;
       spawnParticles(p.x, p.y, '#3498db', 8);
+      spawnPopup(p.x, p.y - 20, 'HAT!', '#3498db');
       return;
     }
     if (this.type === PLAT_TYPES.BREAKABLE) {
@@ -692,6 +731,9 @@ class Platform {
     p.jump(JUMP_VEL);
     Sound.jump();
     springStreak = 0;
+    if (this.type === PLAT_TYPES.NORMAL || this.type === PLAT_TYPES.MOVING) {
+      runStats.greenFreeFrames = 0;
+    }
   }
 }
 
@@ -773,10 +815,14 @@ class UFO {
   update() {
     this.x += this.vx;
     if (this.x < -30 || this.x > W + 30) this.vx *= -1;
-    this.shootT--;
-    if (this.shootT <= 0) {
-      this.shootT = 90 + Math.random() * 60;
-      projectiles.push(new Projectile(this.x, this.y + 14));
+    const onScreen = this.x > 20 && this.x < W - 20 &&
+                     this.y - cameraY > 0 && this.y - cameraY < H;
+    if (onScreen) {
+      this.shootT--;
+      if (this.shootT <= 0) {
+        this.shootT = 90 + Math.random() * 60;
+        projectiles.push(new Projectile(this.x, this.y + 14));
+      }
     }
   }
   draw() {
@@ -818,6 +864,30 @@ class Projectile {
 
 const particlePool = [];
 const particles = [];
+const popups = [];
+function spawnPopup(x, y, text, color) {
+  popups.push({ x, y, text, color: color || '#2c3e50', life: 45, vy: -1.2 });
+}
+function updatePopups() {
+  for (let i = popups.length - 1; i >= 0; i--) {
+    const p = popups[i];
+    p.y += p.vy; p.life--;
+    if (p.life <= 0) popups.splice(i, 1);
+  }
+}
+function drawPopups() {
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 18px sans-serif';
+  for (const p of popups) {
+    ctx.globalAlpha = Math.min(1, p.life / 30);
+    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = p.color; ctx.lineWidth = 4;
+    ctx.strokeText(p.text, p.x, p.y - cameraY);
+    ctx.fillStyle = p.color;
+    ctx.fillText(p.text, p.x, p.y - cameraY);
+  }
+  ctx.globalAlpha = 1;
+}
 function spawnParticles(x, y, color, n) {
   for (let i = 0; i < n; i++) {
     const p = particlePool.pop() || {};
@@ -883,18 +953,32 @@ function generatePlatforms() {
     platforms.push(new Platform(x, nextSpawnY, type));
 
     if (score > 1000 && Math.random() < 0.04 + heightFactor * 0.05) {
-      monsters.push(new Monster(40 + Math.random() * (W - 80), nextSpawnY - 30));
+      const mx = 40 + Math.random() * (W - 80);
+      const my = nextSpawnY - 30;
+      if (!hazardBlocksPlatform(mx, my, 40, 30)) monsters.push(new Monster(mx, my));
     }
     if (score > 3000 && Math.random() < 0.02 + heightFactor * 0.03) {
-      blackholes.push(new BlackHole(40 + Math.random() * (W - 80), nextSpawnY - 50));
+      const bx = 40 + Math.random() * (W - 80);
+      const by = nextSpawnY - 50;
+      if (!hazardBlocksPlatform(bx, by, 50, 40)) blackholes.push(new BlackHole(bx, by));
     }
     if (score > 2000 && Math.random() < 0.015 + heightFactor * 0.03) {
-      ufos.push(new UFO(W/2, nextSpawnY - 40));
+      const ux = 60 + Math.random() * (W - 120);
+      const uy = nextSpawnY - 40;
+      if (!hazardBlocksPlatform(ux, uy, 60, 30)) ufos.push(new UFO(ux, uy));
     }
 
     const gap = 50 + Math.random() * 40 + heightFactor * 30;
     nextSpawnY -= gap;
   }
+}
+
+function hazardBlocksPlatform(x, y, hw, hh) {
+  for (const p of platforms) {
+    if (Math.abs(p.y - y) > hh + 30) continue;
+    if (Math.abs(p.x - x) < hw/2 + p.w/2) return true;
+  }
+  return false;
 }
 
 function cleanup() {
@@ -937,6 +1021,17 @@ function drawBackground() {
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
   }
 
+  // Far layer (slow parallax, small specks/stars)
+  ctx.fillStyle = settings.theme === 'space' || settings.theme === 'night'
+    ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.3)';
+  const farY = (cameraY * 0.1);
+  for (let i = 0; i < 12; i++) {
+    const fx = ((i * 53) % W);
+    const fy = (((i * 97) - farY) % H + H) % H;
+    ctx.beginPath(); ctx.arc(fx, fy, 1.2, 0, Math.PI*2); ctx.fill();
+  }
+
+  // Mid clouds (original layer)
   ctx.fillStyle = t.cloud;
   const cloudY1 = (cameraY * 0.3) % 200;
   for (let i = 0; i < 4; i++) {
@@ -953,6 +1048,21 @@ function drawBackground() {
       ctx.fill();
     }
   }
+
+  // Near clouds (fast parallax, bigger, soft)
+  if (settings.theme !== 'space') {
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    const nearY = (cameraY * 0.6) % 260;
+    for (let i = 0; i < 3; i++) {
+      const cx = ((i * 170 + 90) % W);
+      const cy = ((i * 110 - nearY) % H + H) % H;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 26, 0, Math.PI*2);
+      ctx.arc(cx + 22, cy + 7, 20, 0, Math.PI*2);
+      ctx.arc(cx - 22, cy + 7, 20, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
 }
 
 function startGame() {
@@ -963,14 +1073,19 @@ function startGame() {
   if (window.innerWidth <= 700) document.getElementById('mobileControls').classList.remove('hidden');
   state = STATE.PLAYING;
   score = 0; cameraY = 0; highestY = H - 100;
-  springStreak = 0; sessionAchievements = [];
+  springStreak = 0; springStreakDecay = 0; sessionAchievements = [];
+  runStats = { stomps: 0, rockets: 0, greenFreeFrames: 0 };
+  achievementToasts.length = 0;
+  popups.length = 0;
   player = new Player();
   generateInitial();
   const ac = getAudioCtx(); if (ac && ac.state === 'suspended') ac.resume();
+  startMusic();
 }
 
 function gameOver() {
   state = STATE.GAMEOVER;
+  stopMusic();
   Sound.gameover();
   vibrate([60, 40, 60]);
   document.getElementById('finalScore').textContent = score;
@@ -1024,7 +1139,13 @@ function update() {
     score += Math.floor((highestY - player.y));
     highestY = player.y;
     document.getElementById('scoreVal').textContent = score;
+    checkAchievement('score1000', score >= 1000);
+    checkAchievement('score5000', score >= 5000);
+    checkAchievement('score10000', score >= 10000);
+    checkAchievement('score20000', score >= 20000);
   }
+  runStats.greenFreeFrames++;
+  checkAchievement('noGreen30', runStats.greenFreeFrames >= 60 * 30);
 
   for (const p of platforms) {
     p.update();
@@ -1045,12 +1166,16 @@ function update() {
       if (player.vy > 0 && player.y < m.y) {
         m.alive = false;
         player.jump(JUMP_VEL * 1.2);
-        Sound.ding();
+        Sound.stomp();
         spawnParticles(m.x, m.y, '#9b59b6', 14);
+        spawnPopup(m.x, m.y - 10, '+100', '#9b59b6');
         score += 100;
+        runStats.stomps++;
+        checkAchievement('stomp10', runStats.stomps >= 10);
       } else if (player.rocket > 0 || player.hat > 0) {
         m.alive = false;
         spawnParticles(m.x, m.y, '#9b59b6', 14);
+        spawnPopup(m.x, m.y - 10, 'BOOM!', '#9b59b6');
       } else {
         gameOver(); return;
       }
@@ -1072,6 +1197,8 @@ function update() {
   }
 
   updateParticles();
+  updatePopups();
+  updateAchievementToasts();
   generatePlatforms();
   cleanup();
 
@@ -1089,12 +1216,85 @@ function render() {
   for (const proj of projectiles) proj.draw();
   drawParticles();
   if (player) player.draw();
+  drawPopups();
+  drawComboCounter();
+  drawAchievementToasts();
 
   if (state === STATE.PLAYING) {
     ctx.fillStyle = 'rgba(0,0,0,0.05)';
     ctx.fillRect(0, 0, 4, H);
     ctx.fillRect(W - 4, 0, 4, H);
+    drawPowerupTimer();
   }
+}
+
+function drawComboCounter() {
+  if (!player || springStreak < 2 || springStreakDecay <= 0) return;
+  const scale = 1 + Math.max(0, springStreakDecay - 50) / 50 * 0.5;
+  const alpha = Math.min(1, springStreakDecay / 30);
+  ctx.save();
+  ctx.translate(player.x + 30, player.y - cameraY - 20);
+  ctx.scale(scale, scale);
+  ctx.globalAlpha = alpha;
+  ctx.font = 'bold 22px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#fff';
+  ctx.strokeStyle = '#e67e22'; ctx.lineWidth = 4;
+  const txt = 'x' + springStreak + ' 🌟';
+  ctx.strokeText(txt, 0, 0);
+  ctx.fillStyle = '#e67e22';
+  ctx.fillText(txt, 0, 0);
+  ctx.restore();
+}
+
+function updateAchievementToasts() {
+  for (let i = achievementToasts.length - 1; i >= 0; i--) {
+    achievementToasts[i].life--;
+    if (achievementToasts[i].life <= 0) achievementToasts.splice(i, 1);
+  }
+  if (springStreakDecay > 0) springStreakDecay--;
+}
+function drawAchievementToasts() {
+  let y = 90;
+  for (const t of achievementToasts) {
+    const fade = Math.min(1, t.life / 30);
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = 'rgba(255, 215, 0, 0.95)';
+    ctx.strokeStyle = '#d35400'; ctx.lineWidth = 3;
+    roundRect(ctx, 30, y, W - 60, 36, 10);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#2c3e50';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🏅 ' + t.text, W/2, y + 18);
+    y += 44;
+  }
+  ctx.globalAlpha = 1;
+}
+function pushAchievementToast(text) {
+  achievementToasts.push({ text, life: 120 });
+}
+
+function drawPowerupTimer() {
+  if (!player) return;
+  let frac = 0, color = '', label = '';
+  if (player.rocket > 0) { frac = player.rocket / 80; color = '#e67e22'; label = '🚀'; }
+  else if (player.hat > 0) { frac = player.hat / 100; color = '#3498db'; label = '🎩'; }
+  else return;
+  const barW = 120, barH = 10;
+  const x = W/2 - barW/2, y = 56;
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  roundRect(ctx, x - 2, y - 2, barW + 4, barH + 4, 6); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  roundRect(ctx, x, y, barW, barH, 4); ctx.fill();
+  ctx.fillStyle = color;
+  roundRect(ctx, x, y, barW * frac, barH, 4); ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 14px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, W/2, y - 10);
 }
 
 function loop() {
@@ -1107,13 +1307,19 @@ const ACH_DEFS = {
   score1000: 'First 1,000!',
   score5000: 'Sky Climber (5K)',
   score10000: 'Legendary (10K)',
+  score20000: 'Mythic (20K)',
   springs5: '5 Springs in a row',
+  stomp10: 'Bug Stomper (10)',
+  rockets3: 'Rocket Man (3 in a run)',
+  noGreen30: 'Daredevil (30s no green)',
 };
 function checkAchievement(id, condition) {
   if (condition && !achievements[id]) {
     achievements[id] = true;
     localStorage.setItem('dj_achievements', JSON.stringify(achievements));
     sessionAchievements.push(ACH_DEFS[id]);
+    pushAchievementToast(ACH_DEFS[id]);
+    Sound.ding();
   }
 }
 
@@ -1204,11 +1410,13 @@ function setupToggle(id, key, label) {
   el.onclick = () => {
     settings[key] = !settings[key];
     localStorage.setItem('dj_settings', JSON.stringify(settings));
+    if (key === 'tilt' && !settings.tilt) tiltX = 0;
     refresh();
   };
   refresh();
 }
 setupToggle('soundToggle', 'sound', '🔊 Sound');
+setupToggle('musicToggle', 'music', '🎵 Music');
 setupToggle('tiltToggle', 'tilt', '📱 Tilt');
 setupToggle('vibrateToggle', 'vibrate', '📳 Vibrate');
 

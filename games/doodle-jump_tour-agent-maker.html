@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+  <title>Doodle Jump - Tour Agent Maker</title>
+  <style>
+    :root {
+      --ink: #1b1b1b;
+      --panel: rgba(255, 255, 255, 0.92);
+      --shadow: rgba(0, 0, 0, 0.18);
+      --accent: #f7c948;
+      --green: #63c56b;
+      --blue: #5ba9ff;
+      --brown: #b37a53;
+      --white: #ffffff;
+      --font: "Comic Sans MS", "Marker Felt", "Trebuchet MS", system-ui, sans-serif;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      touch-action: none;
+      user-select: none;
+      background: #f4efe0;
+      font-family: var(--font);
+    }
+    canvas {
+      position: absolute;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      display: block;
+      background: #f4efe0;
+    }
+    #ui {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .hud {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 12px;
+      gap: 10px;
+      z-index: 4;
+    }
+    .stat {
+      pointer-events: none;
+      border: 2px solid var(--ink);
+      background: rgba(255,255,255,0.78);
+      border-radius: 12px;
+      padding: 8px 10px;
+      font-weight: 700;
+      box-shadow: 0 4px 0 var(--shadow);
+      min-width: 88px;
+    }
+    .stat strong { display: block; font-size: 18px; line-height: 1; }
+    .stat span { display: block; font-size: 11px; opacity: .75; margin-top: 2px; }
+    .btn {
+      pointer-events: auto;
+      border: 2px solid var(--ink);
+      border-radius: 14px;
+      background: var(--panel);
+      padding: 12px 16px;
+      font: inherit;
+      font-weight: 700;
+      box-shadow: 0 4px 0 var(--shadow);
+      cursor: pointer;
+    }
+    .btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--shadow); }
+    .btn.icon { width: 46px; height: 46px; padding: 0; border-radius: 999px; }
+    .screen {
+      position: absolute;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      z-index: 6;
+      pointer-events: auto;
+    }
+    .screen.active { display: flex; }
+    .panel {
+      width: min(640px, 100%);
+      background: var(--panel);
+      border: 3px solid var(--ink);
+      border-radius: 18px;
+      box-shadow: 0 10px 0 rgba(0,0,0,0.12);
+      padding: 18px;
+    }
+    h1, h2 { margin: 0 0 10px; line-height: .95; }
+    h1 { font-size: clamp(38px, 8vw, 72px); }
+    p { margin: 0 0 10px; }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+    .row > .btn { flex: 1 1 140px; }
+    .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+    .field { display: grid; gap: 6px; margin-top: 10px; }
+    label { font-size: 13px; font-weight: 700; }
+    select { width: 100%; border: 2px solid var(--ink); border-radius: 12px; padding: 10px 12px; font: inherit; font-weight: 700; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .chip { border: 2px solid var(--ink); border-radius: 999px; padding: 5px 10px; background: rgba(255,255,255,0.82); font-size: 12px; font-weight: 700; }
+    .list { display: grid; gap: 8px; margin-top: 10px; }
+    .listItem {
+      border: 2px solid var(--ink);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.8);
+      padding: 8px 10px;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .toast {
+      position: absolute;
+      left: 50%;
+      top: 16%;
+      transform: translateX(-50%);
+      z-index: 8;
+      background: rgba(255,255,255,0.94);
+      border: 2px solid var(--ink);
+      border-radius: 999px;
+      padding: 8px 14px;
+      box-shadow: 0 4px 0 var(--shadow);
+      font-weight: 700;
+      opacity: 0;
+      transition: opacity .2s ease, transform .2s ease;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(-2px); }
+    #mobileControls {
+      position: absolute;
+      inset: auto 0 0 0;
+      height: 28vh;
+      display: none;
+      z-index: 3;
+      pointer-events: none;
+    }
+    .zone {
+      position: absolute;
+      bottom: 0;
+      height: 24vh;
+      pointer-events: auto;
+    }
+    .zone.left { left: 0; width: 38vw; }
+    .zone.right { right: 0; width: 38vw; }
+    @media (max-width: 900px) {
+      #mobileControls { display: block; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="ui">
+    <div class="hud">
+      <div class="stat"><strong id="score">0</strong><span>Height</span></div>
+      <div class="stat"><strong id="best">0</strong><span>High score</span></div>
+      <button id="pauseBtn" class="btn icon" aria-label="Pause">II</button>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <div id="menuScreen" class="screen active">
+      <div class="panel">
+        <h1>Doodle Jump</h1>
+        <p>Tour Agent Maker edition.</p>
+        <div class="chips" id="menuChips"></div>
+        <div class="row">
+          <button id="playBtn" class="btn">Play</button>
+          <button id="leaderBtn" class="btn">Leaderboard</button>
+          <button id="settingsBtn" class="btn">Settings</button>
+        </div>
+        <p style="margin-top:12px;font-size:13px;">A/D or arrows. On mobile: tap left/right zones or tilt.</p>
+      </div>
+    </div>
+
+    <div id="settingsScreen" class="screen">
+      <div class="panel">
+        <h2>Settings</h2>
+        <div class="grid2">
+          <div class="field">
+            <label for="skinSel">Skin</label>
+            <select id="skinSel">
+              <option value="bunny">Bunny</option>
+              <option value="alien">Alien</option>
+              <option value="ninja">Ninja</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="themeSel">Theme</label>
+            <select id="themeSel">
+              <option value="day">Day</option>
+              <option value="night">Night</option>
+              <option value="space">Space</option>
+              <option value="jungle">Jungle</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label><input id="soundChk" type="checkbox"> Sound</label></div>
+          <div class="field"><label><input id="vibrateChk" type="checkbox"> Vibration</label></div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label><input id="tiltChk" type="checkbox"> Tilt controls</label></div>
+          <div class="field"><label><input id="musicChk" type="checkbox"> Music</label></div>
+        </div>
+        <div class="row">
+          <button id="backSettingsBtn" class="btn">Back</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="leaderScreen" class="screen">
+      <div class="panel">
+        <h2>Leaderboard</h2>
+        <div id="leaderList" class="list"></div>
+        <div class="row">
+          <button id="backLeaderBtn" class="btn">Back</button>
+          <button id="clearScoresBtn" class="btn">Clear Scores</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="pauseScreen" class="screen">
+      <div class="panel">
+        <h2>Paused</h2>
+        <div class="row">
+          <button id="resumeBtn" class="btn">Resume</button>
+          <button id="pauseMenuBtn" class="btn">Menu</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="overScreen" class="screen">
+      <div class="panel">
+        <h2>Game Over</h2>
+        <div class="chips" id="overChips"></div>
+        <div class="row">
+          <button id="retryBtn" class="btn">Retry</button>
+          <button id="overMenuBtn" class="btn">Menu</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="mobileControls">
+      <div id="leftZone" class="zone left"></div>
+      <div id="rightZone" class="zone right"></div>
+    </div>
+  </div>
+
+  <script>
+  (() => {
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('best');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const toast = document.getElementById('toast');
+    const screens = {
+      menu: document.getElementById('menuScreen'),
+      settings: document.getElementById('settingsScreen'),
+      leader: document.getElementById('leaderScreen'),
+      pause: document.getElementById('pauseScreen'),
+      over: document.getElementById('overScreen')
+    };
+    const ui = {
+      menuChips: document.getElementById('menuChips'),
+      leaderList: document.getElementById('leaderList'),
+      overChips: document.getElementById('overChips'),
+      skinSel: document.getElementById('skinSel'),
+      themeSel: document.getElementById('themeSel'),
+      soundChk: document.getElementById('soundChk'),
+      vibrateChk: document.getElementById('vibrateChk'),
+      tiltChk: document.getElementById('tiltChk'),
+      musicChk: document.getElementById('musicChk'),
+      leftZone: document.getElementById('leftZone'),
+      rightZone: document.getElementById('rightZone')
+    };
+    const STORAGE = {
+      settings: 'doodle_tour_settings_v1',
+      high: 'doodle_tour_high_v1',
+      scores: 'doodle_tour_scores_v1',
+      ach: 'doodle_tour_ach_v1'
+    };
+    const THEMES = {
+      day: { bg: '#f4efe0', grid: 'rgba(60,40,20,.10)', text: '#1b1b1b', accent: '#f7c948', p0: '#63c56b', p1: '#5ba9ff', p2: '#b37a53', p3: '#7bd389', p4: '#ffffff' },
+      night: { bg: '#191b2a', grid: 'rgba(255,255,255,.09)', text: '#f7f7ff', accent: '#a1d4ff', p0: '#5cc97b', p1: '#6a8fff', p2: '#8e6b4d', p3: '#98e8a6', p4: '#f2f2fb' },
+      space: { bg: '#101126', grid: 'rgba(150,170,255,.08)', text: '#f7f7ff', accent: '#8d78ff', p0: '#7fd35d', p1: '#59b8ff', p2: '#b97d56', p3: '#98efbf', p4: '#f7f7ff' },
+      jungle: { bg: '#eaf7d8', grid: 'rgba(40,90,35,.09)', text: '#163218', accent: '#d9a93a', p0: '#58c76c', p1: '#51a5f7', p2: '#9f6f4f', p3: '#7bd389', p4: '#ffffff' }
+    };
+    const $ = id => document.getElementById(id);
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    const rand = (a, b) => Math.random() * (b - a) + a;
+    const choice = arr => arr[(Math.random() * arr.length) | 0];
+    const storage = {
+      get(k, fallback) { try { const v = localStorage.getItem(k); return v == null ? fallback : v; } catch { return fallback; } },
+      set(k, v) { try { localStorage.setItem(k, v); } catch {} }
+    };
+    const state = {
+      mode: 'menu',
+      skin: 'bunny',
+      theme: 'day',
+      sound: true,
+      vibrate: true,
+      tilt: false,
+      music: false,
+      high: 0,
+      scores: [],
+      ach: {}
+    };
+    let W = 0, H = 0, DPR = 1, raf = 0, last = 0;
+    let cameraY = 0, highestY = 0, score = 0, comboSpring = 0;
+    let mobileLeft = false, mobileRight = false, tiltValue = 0, tiltAllowed = false;
+    let beat = 0, beatStep = 0, toastTimer = 0;
+    const world = {
+      player: null,
+      platforms: [],
+      bonuses: [],
+      enemies: [],
+      blackholes: [],
+      projectiles: [],
+      particles: []
+    };
+    const pool = [];
+
+    const audio = {
+      ctx: null, gain: null,
+      ensure() {
+        if (!state.sound) return false;
+        if (!this.ctx) {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (!AC) return false;
+          this.ctx = new AC();
+          this.gain = this.ctx.createGain();
+          this.gain.gain.value = 0.06;
+          this.gain.connect(this.ctx.destination);
+        }
+        if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
+        return true;
+      },
+      tone(freq, dur, type, vol) {
+        if (!this.ensure()) return;
+        const t = this.ctx.currentTime;
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = type || 'sine';
+        o.frequency.setValueAtTime(freq, t);
+        o.frequency.exponentialRampToValueAtTime(Math.max(20, freq * 0.75), t + dur);
+        g.gain.setValueAtTime(vol || 0.14, t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        o.connect(g); g.connect(this.gain);
+        o.start(t); o.stop(t + dur + 0.02);
+      },
+      jump() { this.tone(340, 0.07, 'triangle', 0.16); this.tone(560, 0.05, 'square', 0.06); },
+      spring() { this.tone(380, 0.08, 'triangle', 0.16); this.tone(760, 0.10, 'sine', 0.10); },
+      boom() { this.tone(90, 0.24, 'sawtooth', 0.18); },
+      ding() { this.tone(760, 0.08, 'sine', 0.12); this.tone(980, 0.10, 'sine', 0.06); },
+      musicTick(i) { if (!state.music) return; const notes = [392, 440, 523, 587, 659, 523, 440, 392]; this.tone(notes[i % notes.length], 0.06, 'triangle', 0.04); }
+    };
+
+    function vibrate(ms) { if (state.vibrate && navigator.vibrate) navigator.vibrate(ms); }
+    function showToast(msg) {
+      toast.textContent = msg;
+      toast.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('show'), 1200);
+    }
+    function show(name) {
+      state.mode = name;
+      for (const k in screens) screens[k].classList.remove('active');
+      if (screens[name]) screens[name].classList.add('active');
+      document.getElementById('mobileControls').style.display = (name === 'playing' && window.innerWidth < 900) ? 'block' : 'none';
+      drawMenuStats();
+      drawScores();
+    }
+    function saveSettings() {
+      storage.set(STORAGE.settings, JSON.stringify({
+        skin: state.skin, theme: state.theme, sound: state.sound, vibrate: state.vibrate, tilt: state.tilt, music: state.music
+      }));
+    }
+    function loadSettings() {
+      try {
+        Object.assign(state, JSON.parse(storage.get(STORAGE.settings, '{}')) || {});
+      } catch {}
+      state.high = Number(storage.get(STORAGE.high, '0') || 0);
+      try { state.scores = JSON.parse(storage.get(STORAGE.scores, '[]')) || []; } catch { state.scores = []; }
+      try { state.ach = JSON.parse(storage.get(STORAGE.ach, '{}')) || {}; } catch { state.ach = {}; }
+    }
+    function saveProgress() {
+      storage.set(STORAGE.high, String(state.high));
+      storage.set(STORAGE.scores, JSON.stringify(state.scores.slice(0, 5)));
+      storage.set(STORAGE.ach, JSON.stringify(state.ach));
+    }
+    function resize() {
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      DPR = dpr;
+      W = innerWidth; H = innerHeight;
+      canvas.width = Math.floor(W * dpr);
+      canvas.height = Math.floor(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      draw();
+    }
+    function particle(x, y, color, vx, vy, life, size, shape) {
+      const p = pool.pop() || {};
+      p.x = x; p.y = y; p.color = color; p.vx = vx; p.vy = vy; p.life = life; p.max = life; p.size = size; p.shape = shape || 'dot'; p.spin = rand(-.2, .2);
+      world.particles.push(p);
+      return p;
+    }
+    function burst(x, y, color, n, speed) {
+      for (let i = 0; i < n; i++) {
+        const a = rand(0, Math.PI * 2), s = rand(speed * .3, speed);
+        particle(x, y, color, Math.cos(a) * s, Math.sin(a) * s - speed * .3, rand(.25, .8), rand(2, 4), 'dot');
+      }
+    }
+    function player() {
+      return { x: W * .5 - 20, y: H - 150, w: 40, h: 48, vx: 0, vy: 0, boost: null, squash: 0, spin: 0 };
+    }
+    function addPlatform(x, y, kind) {
+      const w = kind === 'moving' ? rand(78, 118) : kind === 'breakable' ? rand(76, 106) : rand(88, 128);
+      const p = { id: ++addPlatform.id, x, y, w, h: 18, kind, phase: rand(0, Math.PI * 2), speed: kind === 'moving' ? rand(35, 70) * (Math.random() < .5 ? -1 : 1) : 0, removed: false, timer: 0, state: 'stable' };
+      p.minX = 24; p.maxX = Math.max(24, W - w - 24);
+      world.platforms.push(p);
+      return p;
+    }
+    addPlatform.id = 0;
+    function addBonus(type, p) {
+      world.bonuses.push({ type, x: p.x + p.w * .5 - 9, y: p.y - 24, w: type === 'hat' ? 24 : 18, h: type === 'hat' ? 22 : 18, alive: true, platformId: p.id, vy: 0, spin: rand(0, Math.PI * 2) });
+    }
+    function addMonster(p) {
+      world.enemies.push({ kind: 'monster', x: clamp(p.x + rand(6, p.w - 36), 16, W - 46), y: p.y - 28, w: 28, h: 26, vx: rand(28, 50) * (Math.random() < .5 ? -1 : 1), platformId: p.id, alive: true, bob: rand(0, Math.PI * 2) });
+    }
+    function addBlackhole(x, y) {
+      world.blackholes.push({ x, y, r: rand(24, 34), spin: rand(0, Math.PI * 2), pulse: rand(0, Math.PI * 2), alive: true });
+    }
+    function addUfo(x, y) {
+      world.enemies.push({ kind: 'ufo', x, y, w: 62, h: 26, vx: rand(80, 120) * (Math.random() < .5 ? -1 : 1), shoot: rand(.8, 1.6), alive: true, bob: rand(0, Math.PI * 2) });
+    }
+    function addProjectile(x, y, vx, vy) {
+      world.projectiles.push({ x, y, vx, vy, r: 5, alive: true, spin: rand(0, Math.PI * 2) });
+    }
+    function reset() {
+      world.platforms = []; world.bonuses = []; world.enemies = []; world.blackholes = []; world.projectiles = []; world.particles = []; pool.length = 0;
+      addPlatform.id = 0;
+      cameraY = 0; highestY = H - 100; score = 0; comboSpring = 0;
+      world.player = player();
+      const startPlatform = addPlatform(W * 0.5 - 54, H - 70, 'normal');
+      world.player.x = startPlatform.x + startPlatform.w * 0.5 - world.player.w * 0.5;
+      world.player.y = startPlatform.y - world.player.h;
+      world.player.vx = 0;
+      world.player.vy = 0;
+      const kinds = ['normal', 'normal', 'normal', 'moving', 'breakable', 'spring', 'disappear'];
+      for (let i = 0; i < 9; i++) {
+        const kind = i === 0 ? 'normal' : choice(kinds);
+        const p = addPlatform(clamp(rand(24, W - 130), 24, Math.max(24, W - 130)), H - 70 - i * rand(60, 95), kind);
+        if (Math.random() < .18 || kind === 'spring') addBonus(choice(['spring', 'rocket', 'hat']), p);
+        if (i >= 2 && Math.random() < .12) addMonster(p);
+        if (i >= 7 && Math.random() < .06) addUfo(clamp(rand(40, W - 100), 30, W - 100), p.y - rand(120, 180));
+      }
+      highestY = Math.min(...world.platforms.map(p => p.y));
+      drawMenuStats();
+      drawScores();
+    }
+    function spawnMore() {
+      const target = cameraY - H * 1.45;
+      while (highestY > target) {
+        highestY -= rand(60, 100);
+        const s = score;
+        const roll = Math.random() * 100;
+        const kind = roll < 60 ? 'normal' : roll < 75 + Math.min(10, s * .02) ? 'moving' : roll < 85 + Math.min(10, s * .02) ? 'breakable' : roll < 95 ? 'spring' : 'disappear';
+        const p = addPlatform(clamp(rand(24, W - 130), 24, Math.max(24, W - 130)), highestY, kind);
+        if (Math.random() < .2) addBonus(choice(['spring', 'rocket', 'hat']), p);
+        if (s > 6 && Math.random() < .14) addMonster(p);
+        if (s > 16 && Math.random() < .08) addUfo(clamp(rand(40, W - 100), 30, W - 100), p.y - rand(130, 220));
+        if (s > 28 && Math.random() < .06) addBlackhole(clamp(rand(50, W - 50), 50, W - 50), p.y - rand(120, 260));
+      }
+    }
+    function clearMenu() {
+      ui.menuChips.innerHTML = [
+        ['Skin', state.skin],
+        ['Theme', state.theme],
+        ['Achievements', String(Object.values(state.ach).filter(Boolean).length)],
+        ['High', String(state.high | 0)]
+      ].map(([a, b]) => `<span class="chip">${a}: ${b}</span>`).join('');
+    }
+    function drawMenuStats() { clearMenu(); }
+    function drawScores() {
+      ui.leaderList.innerHTML = (state.scores || []).slice(0, 5).length
+        ? state.scores.slice(0, 5).map((s, i) => `<div class="listItem"><span>#${i + 1} ${s.score}</span><span>${s.skin} / ${s.theme}</span></div>`).join('')
+        : `<div class="listItem"><span>No scores yet</span><span>Play a round</span></div>`;
+      ui.overChips.innerHTML = [
+        `<span class="chip">Score: ${score | 0}</span>`,
+        `<span class="chip">Best: ${state.high | 0}</span>`,
+        `<span class="chip">Skin: ${state.skin}</span>`,
+        `<span class="chip">Theme: ${state.theme}</span>`
+      ].join('');
+      bestEl.textContent = String(state.high | 0);
+    }
+    function unlock(key, label) {
+      if (state.ach[key]) return;
+      state.ach[key] = true;
+      saveProgress();
+      showToast(label);
+      vibrate([40, 30, 50]);
+    }
+    function collides(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+    function circleRect(cx, cy, r, x, y, w, h) {
+      const nx = clamp(cx, x, x + w), ny = clamp(cy, y, y + h);
+      const dx = cx - nx, dy = cy - ny;
+      return dx * dx + dy * dy <= r * r;
+    }
+    function gameOver() {
+      if (state.mode === 'over') return;
+      state.mode = 'over';
+      audio.boom();
+      vibrate([80, 50, 100]);
+      state.high = Math.max(state.high, score | 0);
+      state.scores.push({ score: score | 0, skin: state.skin, theme: state.theme, t: Date.now() });
+      state.scores.sort((a, b) => b.score - a.score || b.t - a.t);
+      state.scores = state.scores.slice(0, 5);
+      saveProgress();
+      drawScores();
+      show('over');
+    }
+    function boost(type, duration) {
+      world.player.boost = { type, time: duration };
+      if (type === 'rocket') { world.player.vy = Math.min(world.player.vy, -1100); audio.tone(160, 0.16, 'sawtooth', 0.12); }
+      if (type === 'hat') { world.player.vy = Math.min(world.player.vy, -900); audio.tone(210, 0.12, 'triangle', 0.12); }
+      if (type === 'spring') { comboSpring++; audio.spring(); if (comboSpring >= 10) unlock('spring10', '10 springs in a row'); }
+      if (state.vibrate) vibrate(25);
+    }
+    function collectBonus(b) {
+      b.alive = false;
+      if (b.type === 'spring') { boost('spring', 0.18); world.player.vy = Math.min(world.player.vy, -980); burst(b.x + 8, b.y + 8, '#ffe67a', 10, 4); }
+      if (b.type === 'rocket') { boost('rocket', 3.1); burst(b.x + 8, b.y + 8, '#ffffff', 12, 4); }
+      if (b.type === 'hat') { boost('hat', 5.0); burst(b.x + 8, b.y + 8, '#ffffff', 12, 4); }
+      audio.ding();
+    }
+    function updatePlayer(dt) {
+      const p = world.player;
+      const dir = (mobileLeft ? -1 : 0) + (mobileRight ? 1 : 0) + (state.tilt && tiltAllowed ? clamp(tiltValue, -1, 1) : 0) + (keys.left ? -1 : 0) + (keys.right ? 1 : 0);
+      p.x += dir * 300 * dt;
+      if (p.x < -p.w) p.x = W + 2;
+      if (p.x > W + 2) p.x = -p.w;
+      const prevBottom = p.y + p.h;
+      if (p.boost) {
+        p.boost.time -= dt;
+        if (p.boost.type === 'rocket') p.vy = Math.min(p.vy, -1100);
+        else if (p.boost.type === 'hat') p.vy = Math.min(p.vy, -900);
+        else if (p.boost.type === 'spring') p.vy = Math.min(p.vy, -980);
+        p.y += p.vy * dt;
+        if (p.boost.time <= 0) p.boost = null;
+      } else {
+        p.vy += 1800 * dt;
+        p.y += p.vy * dt;
+      }
+      if (p.vy > 0 && !p.boost) {
+        for (const pl of world.platforms) {
+          if (pl.removed) continue;
+          if (prevBottom <= pl.y && p.y + p.h >= pl.y && p.x + p.w > pl.x && p.x < pl.x + pl.w) {
+            p.y = pl.y - p.h;
+            p.vy = -720;
+            p.squash = 1;
+            comboSpring = 0;
+            if (pl.kind === 'breakable') {
+              pl.state = 'breaking'; pl.timer = 0.35; burst(pl.x + pl.w * .5, pl.y, '#9b6a48', 8, 2.4);
+            } else if (pl.kind === 'disappear') {
+              pl.state = 'fading'; pl.timer = 1.15;
+            } else if (pl.kind === 'spring') {
+              p.vy = -980; boost('spring', 0.18); burst(pl.x + pl.w * .5, pl.y - 8, '#ffe67a', 10, 4);
+            } else {
+              audio.jump();
+            }
+            break;
+          }
+        }
+      }
+      p.squash = Math.max(0, p.squash - dt * 2.3);
+      const follow = p.y - H * .42;
+      if (follow < cameraY) cameraY = follow;
+      score = Math.max(score, Math.floor(Math.max(0, -cameraY / 70)));
+      if (score > state.high) { state.high = score | 0; bestEl.textContent = String(state.high | 0); storage.set(STORAGE.high, String(state.high | 0)); }
+      if (p.y - cameraY > H + 130 && !(p.boost && (p.boost.type === 'rocket' || p.boost.type === 'hat'))) gameOver();
+    }
+    function updatePlatforms(dt) {
+      for (const pl of world.platforms) {
+        if (pl.kind === 'moving') {
+          pl.x += pl.speed * dt;
+          if (pl.x < pl.minX) { pl.x = pl.minX; pl.speed *= -1; }
+          if (pl.x > pl.maxX) { pl.x = pl.maxX; pl.speed *= -1; }
+        }
+        if (pl.state === 'breaking') { pl.timer -= dt; pl.y += 220 * dt; if (pl.timer <= 0) pl.removed = true; }
+        if (pl.state === 'fading') { pl.timer -= dt; if (pl.timer <= 0) pl.removed = true; }
+      }
+    }
+    function updateBonuses(dt) {
+      for (const b of world.bonuses) {
+        if (!b.alive) continue;
+        const pl = world.platforms.find(p => p.id === b.platformId && !p.removed);
+        if (pl) { b.x = pl.x + pl.w * .5 - b.w * .5; b.y = pl.y - 24; }
+        else { b.vy += 80 * dt; b.y += b.vy * dt; }
+        b.spin += dt * 3;
+        if (circleRect(world.player.x + world.player.w * .5, world.player.y + world.player.h * .5, 20, b.x, b.y, b.w, b.h)) collectBonus(b);
+      }
+    }
+    function updateEnemies(dt) {
+      const p = world.player;
+      for (const e of world.enemies) {
+        if (!e.alive) continue;
+        if (e.kind === 'monster') {
+          const pl = world.platforms.find(x => x.id === e.platformId && !x.removed);
+          if (pl) {
+            e.y = pl.y - 28 + Math.sin((e.bob += dt * 8)) * 2;
+            e.x += e.vx * dt;
+            if (e.x < pl.x - 6) { e.x = pl.x - 6; e.vx *= -1; }
+            if (e.x > pl.x + pl.w - e.w + 6) { e.x = pl.x + pl.w - e.w + 6; e.vx *= -1; }
+          }
+          if (collides(p, e)) gameOver();
+        } else {
+          e.x += e.vx * dt;
+          e.y += Math.sin((e.bob += dt * 3)) * 12 * dt;
+          if (e.x < -90) e.x = W + 90;
+          if (e.x > W + 90) e.x = -90;
+          e.shoot -= dt;
+          if (e.shoot <= 0) {
+            e.shoot = rand(1, 1.8);
+            const dx = p.x + p.w * .5 - (e.x + e.w * .5), dy = p.y + p.h * .5 - (e.y + e.h);
+            const l = Math.hypot(dx, dy) || 1;
+            addProjectile(e.x + e.w * .5, e.y + e.h, dx / l * 170, dy / l * 170);
+          }
+          if (collides(p, e)) gameOver();
+        }
+      }
+      for (const h of world.blackholes) {
+        h.spin += dt * 4; h.pulse += dt * 6;
+        const px = p.x + p.w * .5, py = p.y + p.h * .5;
+        const dx = h.x - px, dy = h.y - py, dist = Math.hypot(dx, dy);
+        if (dist < h.r * .8) gameOver();
+        if (dist < 190) {
+          const force = (1 - dist / 190) * 280 * dt;
+          p.x += dx / (dist || 1) * force * .14;
+          p.y += dy / (dist || 1) * force * .14;
+          p.vy += dy / (dist || 1) * force * .05;
+        }
+      }
+      for (const pr of world.projectiles) {
+        if (!pr.alive) continue;
+        pr.x += pr.vx * dt; pr.y += pr.vy * dt; pr.spin += dt * 8;
+        if (pr.x < -120 || pr.x > W + 120 || pr.y < cameraY - 120 || pr.y > cameraY + H + 120) pr.alive = false;
+        if (circleRect(pr.x, pr.y, pr.r + 1, p.x, p.y, p.w, p.h)) gameOver();
+      }
+    }
+    function updateParticles(dt) {
+      for (let i = world.particles.length - 1; i >= 0; i--) {
+        const p = world.particles[i];
+        p.life -= dt;
+        if (p.life <= 0) { world.particles.splice(i, 1); pool.push(p); continue; }
+        p.vy += 160 * dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vx *= .992; p.vy *= .992;
+      }
+    }
+    function cleanup() {
+      const top = cameraY - 150, bottom = cameraY + H + 260;
+      world.platforms = world.platforms.filter(p => !p.removed && p.y < bottom);
+      world.bonuses = world.bonuses.filter(b => b.alive && b.y > top - 260 && b.y < bottom);
+      world.enemies = world.enemies.filter(e => e.alive && e.y > top - 260 && e.y < bottom + 260);
+      world.blackholes = world.blackholes.filter(b => b.alive && b.y > top - 300 && b.y < bottom + 300);
+      world.projectiles = world.projectiles.filter(p => p.alive);
+      world.particles = world.particles.filter(p => p.life > 0);
+    }
+    function drawBG() {
+      const t = THEMES[state.theme];
+      ctx.fillStyle = t.bg;
+      ctx.fillRect(0, 0, W, H);
+      const shift = ((cameraY % 48) + 48) % 48;
+      ctx.strokeStyle = t.grid;
+      ctx.lineWidth = 1;
+      for (let x = -shift; x < W + 48; x += 48) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+      for (let y = -shift; y < H + 48; y += 48) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+      if (state.theme === 'space' || state.theme === 'night') {
+        ctx.fillStyle = 'rgba(255,255,255,.9)';
+        for (let i = 0; i < 28; i++) {
+          const x = (i * 173 + cameraY * 0.12) % (W + 120) - 60;
+          const y = (i * 137 + cameraY * 0.2) % (H + 120) - 60;
+          ctx.beginPath(); ctx.arc(x, y, 1 + (i % 3), 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    }
+    function drawPlatform(p) {
+      const t = THEMES[state.theme];
+      const y = p.y - cameraY;
+      if (y < -80 || y > H + 80) return;
+      let color = t.p0;
+      if (p.kind === 'moving') color = t.p1;
+      if (p.kind === 'breakable') color = t.p2;
+      if (p.kind === 'spring') color = t.p3;
+      if (p.kind === 'disappear') color = t.p4;
+      ctx.save();
+      ctx.globalAlpha = p.state === 'fading' ? clamp(p.timer, 0, 1) : 1;
+      ctx.translate(p.x + p.w * .5, y + p.h * .5);
+      ctx.rotate(p.kind === 'breakable' ? Math.sin(performance.now() * 0.01 + p.id) * 0.02 : 0);
+      ctx.fillStyle = color;
+      ctx.strokeStyle = t.text;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.roundRect(-p.w * .5, -p.h * .5, p.w, p.h, 8); ctx.fill(); ctx.stroke();
+      if (p.kind === 'moving') {
+        ctx.fillStyle = 'rgba(255,255,255,.9)';
+        ctx.beginPath(); ctx.moveTo(-p.w * .35, 0); ctx.lineTo(-p.w * .2, -6); ctx.lineTo(-p.w * .2, 6); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(p.w * .35, 0); ctx.lineTo(p.w * .2, -6); ctx.lineTo(p.w * .2, 6); ctx.closePath(); ctx.fill();
+      }
+      if (p.kind === 'spring') {
+        ctx.strokeStyle = '#173017'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(0, -18); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(-10, -4); ctx.quadraticCurveTo(0, -18, 10, -4); ctx.stroke();
+      }
+      if (p.kind === 'breakable') {
+        ctx.strokeStyle = 'rgba(255,255,255,.45)'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(-p.w * .3, -2); ctx.lineTo(p.w * .25, 4); ctx.stroke();
+      }
+      if (p.kind === 'disappear') {
+        ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.stroke(); ctx.setLineDash([]);
+      }
+      ctx.restore();
+    }
+    function drawBonus(b) {
+      const y = b.y - cameraY;
+      if (y < -60 || y > H + 60) return;
+      ctx.save();
+      ctx.translate(b.x + b.w * .5, y + b.h * .5);
+      ctx.rotate(Math.sin(b.spin) * .15);
+      ctx.strokeStyle = '#1b1b1b';
+      ctx.lineWidth = 2;
+      if (b.type === 'spring') {
+        ctx.fillStyle = '#ffe67a'; ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(-2, -10); ctx.lineTo(-2, 10); ctx.moveTo(2, -10); ctx.lineTo(2, 10); ctx.stroke();
+      } else if (b.type === 'rocket') {
+        ctx.fillStyle = '#ff7b59'; ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(10, 0); ctx.lineTo(0, 12); ctx.lineTo(-10, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill();
+      } else {
+        ctx.fillStyle = '#ffe08c'; ctx.beginPath(); ctx.arc(0, -4, 8, Math.PI, 0); ctx.lineTo(8, 4); ctx.lineTo(-8, 4); ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, -12); ctx.lineTo(0, -18); ctx.stroke();
+      }
+      ctx.restore();
+    }
+    function drawEnemy(e) {
+      const y = e.y - cameraY;
+      if (y < -100 || y > H + 100) return;
+      ctx.save();
+      ctx.translate(e.x + e.w * .5, y + e.h * .5);
+      ctx.strokeStyle = '#1b1b1b';
+      ctx.lineWidth = 2.5;
+      if (e.kind === 'monster') {
+        ctx.fillStyle = '#f0c04d';
+        ctx.beginPath(); ctx.roundRect(-14, -13, 28, 26, 8); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#1b1b1b'; ctx.beginPath(); ctx.arc(-5, -2, 2.5, 0, Math.PI * 2); ctx.arc(5, -2, 2.5, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(-5, 7); ctx.lineTo(0, 11); ctx.lineTo(5, 7); ctx.stroke();
+      } else {
+        ctx.fillStyle = '#d7e7ff'; ctx.beginPath(); ctx.ellipse(0, 0, 26, 12, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#a1f1ff'; ctx.beginPath(); ctx.ellipse(0, -5, 12, 7, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#ffcf60'; for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.arc(i * 8, 4, 2, 0, Math.PI * 2); ctx.fill(); }
+      }
+      ctx.restore();
+    }
+    function drawBlackhole(h) {
+      const y = h.y - cameraY;
+      if (y < -120 || y > H + 120) return;
+      ctx.save();
+      ctx.translate(h.x, y);
+      const s = 1 + Math.sin(h.pulse) * .08;
+      ctx.scale(s, s);
+      ctx.fillStyle = 'rgba(0,0,0,.92)';
+      ctx.beginPath(); ctx.arc(0, 0, h.r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,.75)';
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.arc(0, 0, h.r + 5 + i * 7, h.spin + i * .8, h.spin + Math.PI * 1.3 + i * .8);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+    function drawProjectile(p) {
+      const y = p.y - cameraY;
+      if (y < -40 || y > H + 40) return;
+      ctx.save();
+      ctx.translate(p.x, y);
+      ctx.rotate(p.spin);
+      ctx.fillStyle = '#1b1b1b';
+      ctx.beginPath(); ctx.arc(0, 0, p.r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fffd89'; ctx.beginPath(); ctx.arc(0, 0, 2, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+    function drawParticles() {
+      for (const p of world.particles) {
+        const y = p.y - cameraY;
+        if (y < -60 || y > H + 60) continue;
+        ctx.save();
+        ctx.globalAlpha = clamp(p.life / p.max, 0, 1);
+        ctx.translate(p.x, y);
+        ctx.rotate(p.spin * 8);
+        ctx.fillStyle = p.color;
+        ctx.beginPath(); ctx.arc(0, 0, p.size, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
+      ctx.globalAlpha = 1;
+    }
+    function drawPlayer() {
+      const p = world.player, t = THEMES[state.theme];
+      ctx.save();
+      ctx.translate(p.x + p.w * .5, p.y - cameraY + p.h * .5);
+      ctx.rotate(p.boost ? Math.sin(performance.now() * 0.02) * .18 : clamp(p.vx / 700, -0.2, 0.2));
+      const sx = 1 + p.squash * .18, sy = 1 - p.squash * .18;
+      ctx.scale(sx, sy);
+      ctx.strokeStyle = t.text;
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      if (state.skin === 'bunny') {
+        ctx.fillStyle = '#fff6ee';
+        ctx.beginPath(); ctx.ellipse(0, 0, 17, 20, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(-8, -24, 5, 16, -.25, 0, Math.PI * 2); ctx.ellipse(8, -24, 5, 16, .25, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      } else if (state.skin === 'alien') {
+        ctx.fillStyle = '#88eb87'; ctx.beginPath(); ctx.ellipse(0, 0, 18, 20, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      } else {
+        ctx.fillStyle = '#1b1b1b'; ctx.beginPath(); ctx.ellipse(0, 0, 18, 20, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      }
+      ctx.fillStyle = '#1b1b1b';
+      ctx.beginPath(); ctx.arc(-5, -3, 2.2, 0, Math.PI * 2); ctx.arc(5, -3, 2.2, 0, Math.PI * 2); ctx.fill();
+      if (state.skin === 'ninja') {
+        ctx.strokeStyle = '#f7f7ff'; ctx.beginPath(); ctx.moveTo(-12, 0); ctx.lineTo(12, 0); ctx.stroke();
+      } else {
+        ctx.beginPath(); ctx.moveTo(-4, 5); ctx.quadraticCurveTo(0, 9, 4, 5); ctx.stroke();
+      }
+      if (p.boost && p.boost.type === 'hat') {
+        ctx.translate(0, -26);
+        ctx.fillStyle = '#ffe08c'; ctx.strokeStyle = t.text; ctx.beginPath(); ctx.arc(0, 0, 7, Math.PI, 0); ctx.lineTo(7, 5); ctx.lineTo(-7, 5); ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+      if (p.boost && p.boost.type === 'rocket') {
+        ctx.fillStyle = '#ff9f58'; ctx.beginPath(); ctx.moveTo(-12, 14); ctx.lineTo(0, 24); ctx.lineTo(12, 14); ctx.lineTo(0, 20); ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+    }
+    function draw() {
+      drawBG();
+      for (const p of world.platforms) drawPlatform(p);
+      for (const b of world.bonuses) if (b.alive) drawBonus(b);
+      for (const e of world.enemies) if (e.alive) drawEnemy(e);
+      for (const h of world.blackholes) if (h.alive) drawBlackhole(h);
+      for (const p of world.projectiles) if (p.alive) drawProjectile(p);
+      drawParticles();
+      if (world.player) drawPlayer();
+      ctx.fillStyle = THEMES[state.theme].text;
+      ctx.font = '700 15px ' + getComputedStyle(document.body).fontFamily;
+      ctx.textAlign = 'left'; ctx.fillText('Height ' + (score | 0), 16, 28);
+      ctx.textAlign = 'right'; ctx.fillText('Best ' + (state.high | 0), W - 16, 28);
+    }
+    function unlockChecks() {
+      if (score >= 1000) unlock('h1000', 'First 1000 points');
+      if ((Date.now() - startTime) > 60000) unlock('s60', '60 seconds survived');
+      if (state.scores.length >= 3 && score >= 300) unlock('mid', 'Mid climber');
+    }
+    function step(ts) {
+      if (state.mode !== 'playing') return;
+      if (!last) last = ts;
+      const dt = Math.min(0.033, Math.max(0.001, (ts - last) / 1000));
+      last = ts;
+      if (state.tilt && tiltAllowed) tiltValue = clamp(tiltValue, -1, 1);
+      updatePlayer(dt);
+      updatePlatforms(dt);
+      updateBonuses(dt);
+      updateEnemies(dt);
+      updateParticles(dt);
+      spawnMore();
+      cleanup();
+      unlockChecks();
+      draw();
+      beat += dt;
+      if (state.music && beat > .28) { beat = 0; audio.musicTick(beatStep++); }
+      scoreEl.textContent = String(score | 0);
+      if (score > state.high) {
+        state.high = score | 0;
+        bestEl.textContent = String(state.high | 0);
+        storage.set(STORAGE.high, String(state.high));
+      }
+      raf = requestAnimationFrame(step);
+    }
+    let startTime = 0;
+    function startGame() {
+      reset();
+      startTime = Date.now();
+      audio.ensure();
+      show('playing');
+      last = 0;
+      raf = requestAnimationFrame(step);
+    }
+    function pauseGame() {
+      if (state.mode !== 'playing') return;
+      show('pause');
+      cancelAnimationFrame(raf);
+    }
+    function resumeGame() {
+      if (state.mode !== 'pause') return;
+      show('playing');
+      last = 0;
+      raf = requestAnimationFrame(step);
+    }
+    function updateLeaderboard() {
+      ui.leaderList.innerHTML = (state.scores.length ? state.scores : []).slice(0, 5).map((s, i) => `<div class="listItem"><span>#${i + 1} ${s.score}</span><span>${s.skin} / ${s.theme}</span></div>`).join('') || `<div class="listItem"><span>No scores yet</span><span>Play a round</span></div>`;
+    }
+    function saveScore() {
+      state.scores.push({ score: score | 0, skin: state.skin, theme: state.theme, t: Date.now() });
+      state.scores.sort((a, b) => b.score - a.score || b.t - a.t);
+      state.scores = state.scores.slice(0, 5);
+      state.high = Math.max(state.high, score | 0);
+      saveProgress();
+      updateLeaderboard();
+      drawScores();
+    }
+    function endGame() {
+      if (state.mode === 'over') return;
+      cancelAnimationFrame(raf);
+      audio.boom();
+      saveScore();
+      drawScores();
+      show('over');
+    }
+    function setSetting(key, value) { state[key] = value; saveSettings(); drawMenuStats(); }
+    const keys = { left: false, right: false };
+    function bindInput() {
+      addEventListener('keydown', e => {
+        if (e.repeat) return;
+        if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') keys.left = true;
+        if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') keys.right = true;
+        if (e.key.toLowerCase() === 'p') state.mode === 'playing' ? pauseGame() : state.mode === 'pause' ? resumeGame() : 0;
+        if (e.key === 'Escape') show('menu');
+        if (e.key === 'Enter') {
+          if (state.mode === 'menu' || state.mode === 'over') startGame();
+          else if (state.mode === 'pause') resumeGame();
+        }
+      });
+      addEventListener('keyup', e => {
+        if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') keys.left = false;
+        if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') keys.right = false;
+      });
+      const down = side => {
+        if (state.mode !== 'playing') return;
+        if (side === 'left') mobileLeft = true;
+        if (side === 'right') mobileRight = true;
+        audio.ensure();
+      };
+      const up = () => { mobileLeft = false; mobileRight = false; };
+      ui.leftZone.addEventListener('pointerdown', () => down('left'));
+      ui.rightZone.addEventListener('pointerdown', () => down('right'));
+      addEventListener('pointerup', up);
+      addEventListener('pointercancel', up);
+      addEventListener('pointermove', e => {
+        if (state.mode !== 'playing') return;
+        if (!e.isPrimary) return;
+      }, { passive: true });
+      addEventListener('touchstart', e => {
+        if (state.mode !== 'playing') return;
+        if (!e.touches || !e.touches[0]) return;
+        mobileLeft = e.touches[0].clientX < innerWidth / 2;
+        mobileRight = !mobileLeft;
+      }, { passive: true });
+      addEventListener('touchend', () => { mobileLeft = false; mobileRight = false; }, { passive: true });
+      addEventListener('deviceorientation', e => {
+        if (!state.tilt || !tiltAllowed) return;
+        tiltValue = clamp((typeof e.gamma === 'number' ? e.gamma : 0) / 24, -1, 1);
+      }, { passive: true });
+    }
+    function requestTilt() {
+      if (!state.tilt) return;
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission().then(r => tiltAllowed = r === 'granted').catch(() => tiltAllowed = false);
+      } else {
+        tiltAllowed = true;
+      }
+    }
+    function bindUI() {
+      $('playBtn').onclick = () => startGame();
+      $('retryBtn').onclick = () => startGame();
+      $('pauseBtn').onclick = () => state.mode === 'playing' ? pauseGame() : state.mode === 'pause' ? resumeGame() : null;
+      $('resumeBtn').onclick = () => resumeGame();
+      $('pauseMenuBtn').onclick = () => { cancelAnimationFrame(raf); show('menu'); draw(); };
+      $('overMenuBtn').onclick = () => { show('menu'); draw(); };
+      $('settingsBtn').onclick = () => show('settings');
+      $('backSettingsBtn').onclick = () => show('menu');
+      $('leaderBtn').onclick = () => { updateLeaderboard(); show('leader'); };
+      $('backLeaderBtn').onclick = () => show('menu');
+      $('clearScoresBtn').onclick = () => { state.scores = []; state.high = 0; saveProgress(); updateLeaderboard(); drawScores(); drawMenuStats(); showToast('Scores cleared'); };
+      ui.skinSel.onchange = e => setSetting('skin', e.target.value);
+      ui.themeSel.onchange = e => setSetting('theme', e.target.value);
+      ui.soundChk.onchange = e => setSetting('sound', e.target.checked);
+      ui.vibrateChk.onchange = e => setSetting('vibrate', e.target.checked);
+      ui.tiltChk.onchange = e => { setSetting('tilt', e.target.checked); if (e.target.checked) requestTilt(); };
+      ui.musicChk.onchange = e => setSetting('music', e.target.checked);
+    }
+    function syncSettings() {
+      ui.skinSel.value = state.skin;
+      ui.themeSel.value = state.theme;
+      ui.soundChk.checked = state.sound !== false;
+      ui.vibrateChk.checked = state.vibrate !== false;
+      ui.tiltChk.checked = !!state.tilt;
+      ui.musicChk.checked = !!state.music;
+      bestEl.textContent = String(state.high | 0);
+      updateLeaderboard();
+      drawMenuStats();
+    }
+    function init() {
+      loadSettings();
+      syncSettings();
+      bindInput();
+      bindUI();
+      addEventListener('resize', resize);
+      addEventListener('beforeunload', saveProgress);
+      addEventListener('visibilitychange', () => { if (document.hidden && state.mode === 'playing') pauseGame(); });
+      resize();
+      reset();
+      show('menu');
+      drawMenuStats();
+      updateLeaderboard();
+    }
+    init();
+  })();
+  </script>
+</body>
+</html>

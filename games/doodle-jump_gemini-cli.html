@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Doodle Jump</title>
     <style>
         body {
@@ -129,7 +131,7 @@
     <canvas id="gameCanvas"></canvas>
     
     <div id="scoreBoard" style="display: none;">Score: <span id="currentScore">0</span></div>
-    <button id="pauseBtnUI" style="display: none;">II</button>
+    <button id="pauseBtnUI" style="display: none;">⏸</button>
 
     <div id="ui">
         <div id="menuScreen" class="screen active">
@@ -158,6 +160,24 @@
 </div>
 
 <script>
+    // roundRect polyfill for pre-Safari-16
+    if (!CanvasRenderingContext2D.prototype.roundRect) {
+      CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+        r = Math.min(r, w / 2, h / 2);
+        this.beginPath();
+        this.moveTo(x + r, y);
+        this.arcTo(x + w, y,     x + w, y + h, r);
+        this.arcTo(x + w, y + h, x,     y + h, r);
+        this.arcTo(x,     y + h, x,     y,     r);
+        this.arcTo(x,     y,     x + w, y,     r);
+        this.closePath();
+        return this;
+      };
+    }
+
+    // Platform type constants
+    const PLAT_TYPES = { NORMAL: 0, MOVING: 1, BREAKABLE: 2, SPRING: 3, DISAPPEAR: 4 };
+
     // Game Setup
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
@@ -165,12 +185,23 @@
 
     let CANVAS_WIDTH = gameContainer.clientWidth;
     let CANVAS_HEIGHT = gameContainer.clientHeight;
-    
+    let prevCanvasWidth = CANVAS_WIDTH;
+
     function resizeCanvas() {
+        const oldW = prevCanvasWidth;
         CANVAS_WIDTH = gameContainer.clientWidth;
         CANVAS_HEIGHT = gameContainer.clientHeight;
         canvas.width = CANVAS_WIDTH;
         canvas.height = CANVAS_HEIGHT;
+        // Rescale world X coordinates so an in-progress run survives resize
+        if (gameState === 'playing' && oldW && oldW !== CANVAS_WIDTH) {
+            const ratio = CANVAS_WIDTH / oldW;
+            if (player) player.x *= ratio;
+            for (const p of platforms) p.x *= ratio;
+            for (const e of enemies)   e.x *= ratio;
+            for (const it of items)    it.x *= ratio;
+        }
+        prevCanvasWidth = CANVAS_WIDTH;
     }
     window.addEventListener('resize', resizeCanvas);
     resizeCanvas();
@@ -197,9 +228,17 @@
     let isPaused = false;
     let score = 0;
     
-    let leaderBoard = JSON.parse(localStorage.getItem('doodle_leaderboard')) || [0,0,0,0,0];
+    let leaderBoard;
+    try {
+        leaderBoard = JSON.parse(localStorage.getItem('doodle_leaderboard')) || [];
+        if (!Array.isArray(leaderBoard)) leaderBoard = [];
+    } catch {
+        leaderBoard = [];
+    }
     function renderLeaderboard() {
-        let html = leaderBoard.map((s,i) => `<div>${i+1}. ${s}</div>`).join('');
+        const html = leaderBoard.length
+            ? leaderBoard.map((s,i) => `<div>${i+1}. ${s}</div>`).join('')
+            : `<div style="color:#888">No scores yet</div>`;
         menuHighScoreEl.innerHTML = html;
         endHighScoreEl.innerHTML = html;
     }
@@ -219,6 +258,7 @@
     const keys = { ArrowLeft: false, ArrowRight: false, a: false, d: false };
     let touchLeft = false;
     let touchRight = false;
+    const activeTouches = new Map(); // touch.identifier → 'left' | 'right'
 
     window.addEventListener('keydown', (e) => {
         if(keys.hasOwnProperty(e.key)) keys[e.key] = true;
@@ -227,24 +267,34 @@
     window.addEventListener('keyup', (e) => {
         if(keys.hasOwnProperty(e.key)) keys[e.key] = false;
     });
-    
+
+    function syncTouchSides() {
+        const sides = [...activeTouches.values()];
+        touchLeft  = sides.includes('left');
+        touchRight = sides.includes('right');
+    }
+
     gameContainer.addEventListener('touchstart', (e) => {
         if(gameState !== 'playing' || isPaused) return;
         if(e.target.id === 'pauseBtnUI') return;
         e.preventDefault();
-        const touchX = e.touches[0].clientX;
         const rect = gameContainer.getBoundingClientRect();
-        const localX = touchX - rect.left;
-        if(localX < CANVAS_WIDTH / 2) touchLeft = true;
-        else touchRight = true;
+        for (const t of e.changedTouches) {
+            const localX = t.clientX - rect.left;
+            const side = localX < CANVAS_WIDTH / 2 ? 'left' : 'right';
+            activeTouches.set(t.identifier, side);
+        }
+        syncTouchSides();
     }, { passive: false });
 
-    gameContainer.addEventListener('touchend', (e) => {
+    function endTouches(e) {
         if(e.target.id === 'pauseBtnUI') return;
         e.preventDefault();
-        touchLeft = false;
-        touchRight = false;
-    }, { passive: false });
+        for (const t of e.changedTouches) activeTouches.delete(t.identifier);
+        syncTouchSides();
+    }
+    gameContainer.addEventListener('touchend',    endTouches, { passive: false });
+    gameContainer.addEventListener('touchcancel', endTouches, { passive: false });
 
     // Audio System
     const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -473,30 +523,30 @@
             this.y = y;
             this.width = 60;
             this.height = 15;
-            this.type = type; // 0: Normal, 1: Moving, 2: Breakable, 3: Spring, 4: Disappearing
+            this.type = type;
             this.broken = false;
             this.opacity = 1;
-            
+
             this.direction = Math.random() > 0.5 ? 1 : -1;
             this.speed = 1 + Math.random() * 2;
-            
-            this.hasSpring = (type === 3 || (type === 0 && Math.random() < 0.1));
+
+            this.hasSpring = (type === PLAT_TYPES.SPRING || (type === PLAT_TYPES.NORMAL && Math.random() < 0.1));
             this.springState = 0;
         }
 
         update() {
-            if (this.type === 1) {
+            if (this.type === PLAT_TYPES.MOVING) {
                 this.x += this.speed * this.direction;
                 if (this.x <= 0 || this.x + this.width >= CANVAS_WIDTH) {
                     this.direction *= -1;
                 }
             }
-            
+
             if (this.broken) {
                 this.y += 5; // Fall down
             }
-            
-            if (this.type === 4 && this.broken) {
+
+            if (this.type === PLAT_TYPES.DISAPPEAR && this.broken) {
                 this.opacity -= 0.1;
             }
         }
@@ -504,25 +554,25 @@
         draw() {
             if (this.opacity <= 0) return;
             ctx.globalAlpha = Math.max(0, this.opacity);
-            
-            if (this.broken && this.type === 2) {
+
+            if (this.broken && this.type === PLAT_TYPES.BREAKABLE) {
                 // Draw broken brown platform
                 ctx.fillStyle = '#8B4513';
                 ctx.fillRect(this.x, this.y - cameraY, this.width/2 - 2, this.height);
                 ctx.fillRect(this.x + this.width/2 + 2, this.y - cameraY + 10, this.width/2 - 2, this.height);
             } else {
                 switch (this.type) {
-                    case 0: ctx.fillStyle = '#58c53b'; break; // Green
-                    case 1: ctx.fillStyle = '#3bc5c5'; break; // Blue
-                    case 2: ctx.fillStyle = '#c5853b'; break; // Brown
-                    case 3: ctx.fillStyle = '#58c53b'; break; // Green
-                    case 4: ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#ccc'; break; // White
+                    case PLAT_TYPES.NORMAL:    ctx.fillStyle = '#58c53b'; break; // Green
+                    case PLAT_TYPES.MOVING:    ctx.fillStyle = '#3bc5c5'; break; // Blue
+                    case PLAT_TYPES.BREAKABLE: ctx.fillStyle = '#c5853b'; break; // Brown
+                    case PLAT_TYPES.SPRING:    ctx.fillStyle = '#58c53b'; break; // Green
+                    case PLAT_TYPES.DISAPPEAR: ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#ccc'; break; // White
                 }
-                
+
                 ctx.beginPath();
                 ctx.roundRect(this.x, this.y - cameraY, this.width, this.height, 5);
                 ctx.fill();
-                if (this.type === 4) ctx.stroke();
+                if (this.type === PLAT_TYPES.DISAPPEAR) ctx.stroke();
             }
             
             // Spring
@@ -635,25 +685,25 @@
             y -= platformGap;
             let x = Math.random() * (CANVAS_WIDTH - 60);
             
-            let type = 0;
+            let type = PLAT_TYPES.NORMAL;
             let r = Math.random();
             let difficulty = Math.min(score / 10000, 1);
-            
+
             if (y > -500) {
-                type = 0; // Safe start
+                type = PLAT_TYPES.NORMAL; // Safe start
             } else {
-                if (r < 0.1 + difficulty * 0.1) type = 2; // Breakable
-                else if (r < 0.2 + difficulty * 0.2) type = 1; // Moving
-                else if (r < 0.25 + difficulty * 0.2) type = 4; // Disappearing
-                else if (r < 0.3) type = 3; // Spring
+                if (r < 0.1 + difficulty * 0.1) type = PLAT_TYPES.BREAKABLE;
+                else if (r < 0.2 + difficulty * 0.2) type = PLAT_TYPES.MOVING;
+                else if (r < 0.25 + difficulty * 0.2) type = PLAT_TYPES.DISAPPEAR;
+                else if (r < 0.3) type = PLAT_TYPES.SPRING;
             }
-            
+
             let platform = new Platform(x, y, type);
             platforms.push(platform);
             highestY = y;
 
             // Generate enemies and items on normal or moving platforms
-            if (y < -1000 && (type === 0 || type === 1) && !platform.hasSpring) {
+            if (y < -1000 && (type === PLAT_TYPES.NORMAL || type === PLAT_TYPES.MOVING) && !platform.hasSpring) {
                 let spawnR = Math.random();
                 if (spawnR < 0.05 + difficulty * 0.05) {
                     // Spawn Enemy
@@ -671,7 +721,8 @@
             isPaused = !isPaused;
             if (!isPaused) {
                 pauseScreen.classList.remove('active');
-                gameLoop();
+                cancelAnimationFrame(animationId);
+                animationId = requestAnimationFrame(gameLoop);
             } else {
                 pauseScreen.classList.add('active');
             }
@@ -703,7 +754,7 @@
         player = new Player();
         
         // Base platform
-        platforms.push(new Platform(CANVAS_WIDTH / 2 - 30, CANVAS_HEIGHT - 50, 0));
+        platforms.push(new Platform(CANVAS_WIDTH / 2 - 30, CANVAS_HEIGHT - 50, PLAT_TYPES.NORMAL));
         
         generatePlatforms(CANVAS_HEIGHT, Math.ceil(CANVAS_HEIGHT / 60) + 5);
         
@@ -723,11 +774,24 @@
         gameOverScreen.classList.add('active');
         finalScoreEl.innerText = score;
         
+        const isRecord = score > 0 && (leaderBoard.length === 0 || score > leaderBoard[0]);
         leaderBoard.push(score);
         leaderBoard.sort((a,b) => b-a);
         leaderBoard = leaderBoard.slice(0, 5);
-        localStorage.setItem('doodle_leaderboard', JSON.stringify(leaderBoard));
+        try { localStorage.setItem('doodle_leaderboard', JSON.stringify(leaderBoard)); } catch {}
         renderLeaderboard();
+
+        // Remove any prior "NEW BEST" tag, then add a fresh one if this run set a record
+        const oldTag = gameOverScreen.querySelector('.new-best');
+        if (oldTag) oldTag.remove();
+        if (isRecord) {
+            const tag = document.createElement('div');
+            tag.className = 'new-best';
+            tag.textContent = '🎉 NEW BEST';
+            tag.style.cssText = 'color:#e67e22;font-weight:bold;margin:8px 0;font-size:20px;';
+            const h3 = gameOverScreen.querySelector('h3');
+            gameOverScreen.insertBefore(tag, h3);
+        }
     }
 
     function isColliding(a, b) {
@@ -793,7 +857,8 @@
                         spawnParticles(enemy.x+20, enemy.y+15, '#ff4444', 20);
                         shakeTime = 5;
                     } else {
-                        gameOver();
+                        // Only kill on meaningful vertical overlap — grazing the top doesn't count
+                        if (player.y + player.height > enemy.y + 4) gameOver();
                     }
                 }
             } else {
@@ -820,12 +885,12 @@
                     let prevPlayerBottom = playerBottom - player.vy;
                     
                     if (prevPlayerBottom <= p.y + 10 && playerBottom >= p.y && !p.broken && p.opacity > 0) {
-                        if (p.type === 2) {
+                        if (p.type === PLAT_TYPES.BREAKABLE) {
                             p.broken = true;
                             playSound('break');
                             spawnParticles(p.x+30, p.y, '#8B4513', 15);
                             shakeTime = 8;
-                        } else if (p.type === 4) {
+                        } else if (p.type === PLAT_TYPES.DISAPPEAR) {
                             p.broken = true;
                             player.jump();
                             spawnParticles(p.x+30, p.y, '#ffffff', 10);
@@ -878,20 +943,20 @@
     }
 
     function gameLoop() {
-        if (!isPaused) {
-            update();
-            draw();
-        }
-        
-        if (gameState === 'playing' || (gameState === 'gameover' && particles.length > 0)) {
-            if (gameState === 'gameover') {
-                 // allow particles to finish rendering on game over
-                 draw();
-                 for(let i=particles.length-1; i>=0; i--) {
-                    particles[i].update();
-                    if(particles[i].life <= 0) particles.splice(i, 1);
-                 }
+        if (isPaused) return; // genuinely stop the loop while paused
+
+        update();
+        draw();
+
+        if (gameState === 'gameover') {
+            // allow particles to finish rendering on game over
+            for(let i=particles.length-1; i>=0; i--) {
+                particles[i].update();
+                if(particles[i].life <= 0) particles.splice(i, 1);
             }
+        }
+
+        if (gameState === 'playing' || (gameState === 'gameover' && particles.length > 0)) {
             animationId = requestAnimationFrame(gameLoop);
         }
     }

@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pacman — Claude Opus 4.8</title>
+<style>
+  :root {
+    --wall: #2121de;
+    --dot: #ffb897;
+    --bg: #000;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    background: #000;
+    color: #fff;
+    font-family: "Press Start 2P", "Courier New", monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  h1 {
+    font-size: 22px;
+    letter-spacing: 4px;
+    color: #ffd400;
+    text-shadow: 0 0 12px rgba(255, 212, 0, 0.6);
+  }
+  #hud {
+    display: flex;
+    gap: 28px;
+    font-size: 14px;
+    letter-spacing: 2px;
+  }
+  #hud .label { color: #888; }
+  #hud .val { color: #ffd400; }
+  #stage {
+    position: relative;
+    background: #000;
+    border: 2px solid #1010a0;
+    border-radius: 6px;
+    box-shadow: 0 0 30px rgba(33, 33, 222, 0.4);
+  }
+  canvas { display: block; }
+  #overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    background: rgba(0, 0, 0, 0.78);
+    text-align: center;
+    padding: 20px;
+  }
+  #overlay.hidden { display: none; }
+  #overlay h2 {
+    font-size: 26px;
+    letter-spacing: 3px;
+  }
+  #overlay h2.win { color: #ffd400; }
+  #overlay h2.lose { color: #ff3b3b; }
+  #overlay p { font-size: 12px; color: #ccc; line-height: 1.8; }
+  button {
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: 2px;
+    color: #000;
+    background: #ffd400;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+  button:hover { transform: scale(1.05); box-shadow: 0 0 18px rgba(255, 212, 0, 0.7); }
+  button:active { transform: scale(0.97); }
+  #hint { font-size: 11px; color: #666; letter-spacing: 1px; }
+</style>
+</head>
+<body>
+  <h1>P A C M A N</h1>
+  <div id="hud">
+    <div><span class="label">SCORE </span><span class="val" id="score">0</span></div>
+    <div><span class="label">LIVES </span><span class="val" id="lives">3</span></div>
+    <div><span class="label">LEVEL </span><span class="val" id="level">1</span></div>
+  </div>
+  <div id="stage">
+    <canvas id="game"></canvas>
+    <div id="overlay">
+      <h2 id="ov-title">ГОТОВИЙ?</h2>
+      <p id="ov-text">Керування: стрілки або WASD<br>Збери всі крапки, уникай привидів<br>Велика крапка робить привидів вразливими</p>
+      <button id="ov-btn">СТАРТ</button>
+    </div>
+  </div>
+  <div id="hint">← ↑ → ↓ / W A S D &nbsp;·&nbsp; P — пауза</div>
+
+<script>
+(() => {
+  "use strict";
+
+  // ---- Лабіринт ----
+  // 0 = порожньо, 1 = стіна, 2 = крапка, 3 = енерджайзер, 4 = ворота привидів, 5 = тунель/порожньо
+  const LEGEND = [
+    "1111111111111111111111111111",
+    "1222222222222112222222222221",
+    "1211112111112112111112111121",
+    "1311112111112112111112111131",
+    "1211112111112112111112111121",
+    "1222222222222222222222222221",
+    "1211112112111111112112111121",
+    "1211112112111111112112111121",
+    "1222222112222112222112222221",
+    "1111112111110110111112111111",
+    "0000012111110110111112100000",
+    "0000012110000000000112100000",
+    "0000012110111441110112100000",
+    "1111112110100000010112111111",
+    "5000002000100000010002000005",
+    "1111112110100000010112111111",
+    "0000012110111111110112100000",
+    "0000012110000000000112100000",
+    "0000012110111111110112100000",
+    "1111112110111111110112111111",
+    "1222222222222112222222222221",
+    "1211112111112112111112111121",
+    "1311222112222002222112223131",
+    "1112112112111111112112112111",
+    "1112112112111111112112112111",
+    "1222222112222112222112222221",
+    "1211111111112112111111111121",
+    "1211111111112112111111111121",
+    "1222222222222222222222222221",
+    "1111111111111111111111111111",
+  ];
+
+  const ROWS = LEGEND.length;
+  const COLS = LEGEND[0].length;
+  const TILE = 20;
+  const W = COLS * TILE;
+  const H = ROWS * TILE;
+
+  const canvas = document.getElementById("game");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  // елементи UI
+  const scoreEl = document.getElementById("score");
+  const livesEl = document.getElementById("lives");
+  const levelEl = document.getElementById("level");
+  const overlay = document.getElementById("overlay");
+  const ovTitle = document.getElementById("ov-title");
+  const ovText = document.getElementById("ov-text");
+  const ovBtn = document.getElementById("ov-btn");
+
+  // ---- Стан гри ----
+  let grid;          // копія карти з крапками
+  let dotsLeft;
+  let score = 0;
+  let lives = 3;
+  let level = 1;
+  let state = "menu"; // menu | ready | playing | paused | dead | won | over
+  let frightTimer = 0;
+  let readyTimer = 0;
+
+  const SPAWN = { col: 14, row: 22 }; // стартова клітинка пакмена
+
+  function isWall(c, r) {
+    if (r < 0 || r >= ROWS) return true;
+    if (c < 0 || c >= COLS) return false; // тунель по горизонталі
+    const ch = grid[r][c];
+    return ch === 1;
+  }
+
+  function isGate(c, r) {
+    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
+    return grid[r][c] === 4;
+  }
+
+  // ---- Сутності ----
+  function makeEntity(col, row, color) {
+    return {
+      x: col * TILE + TILE / 2,
+      y: row * TILE + TILE / 2,
+      dir: { x: 0, y: 0 },
+      next: { x: 0, y: 0 },
+      speed: 2,
+      color,
+      startCol: col,
+      startRow: row,
+    };
+  }
+
+  let pac;
+  let ghosts;
+
+  const GHOST_DEFS = [
+    { col: 13, row: 14, color: "#ff0000", name: "blinky" },
+    { col: 14, row: 14, color: "#ffb8ff", name: "pinky" },
+    { col: 13, row: 16, color: "#00ffff", name: "inky" },
+    { col: 14, row: 16, color: "#ffb852", name: "clyde" },
+  ];
+
+  function resetEntities() {
+    pac = makeEntity(SPAWN.col, SPAWN.row, "#ffd400");
+    pac.dir = { x: -1, y: 0 };
+    pac.next = { x: -1, y: 0 };
+    pac.speed = 2.2;
+    pac.mouth = 0;
+
+    ghosts = GHOST_DEFS.map((g) => {
+      const e = makeEntity(g.col, g.row, g.color);
+      e.speed = 1.8;
+      e.name = g.name;
+      e.dir = { x: 0, y: -1 };
+      e.frightened = false;
+      e.eaten = false;
+      e.releaseDelay = GHOST_DEFS.indexOf(g) * 70; // поетапний випуск
+      e.released = false;
+      return e;
+    });
+    frightTimer = 0;
+  }
+
+  function loadLevel() {
+    grid = LEGEND.map((row) => row.split("").map((ch) => parseInt(ch, 10)));
+    dotsLeft = 0;
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (grid[r][c] === 2 || grid[r][c] === 3) dotsLeft++;
+      }
+    }
+    resetEntities();
+  }
+
+  // ---- Рух по сітці ----
+  function tileCenter(x) {
+    return Math.abs((x % TILE) - TILE / 2) < 2.5;
+  }
+
+  function entTile(e) {
+    return { c: Math.floor(e.x / TILE), r: Math.floor(e.y / TILE) };
+  }
+
+  function canMove(e, dir, allowGate) {
+    const { c, r } = entTile(e);
+    const nc = c + dir.x;
+    const nr = r + dir.y;
+    if (isWall(nc, nr)) return false;
+    if (!allowGate && isGate(nc, nr)) return false;
+    return true;
+  }
+
+  function moveEntity(e, allowGate) {
+    const atCenterX = Math.abs((e.x % TILE) - TILE / 2) < e.speed;
+    const atCenterY = Math.abs((e.y % TILE) - TILE / 2) < e.speed;
+
+    // спроба змінити напрямок у вузлі
+    if (atCenterX && atCenterY && e.next && (e.next.x !== e.dir.x || e.next.y !== e.dir.y)) {
+      if (canMove(e, e.next, allowGate)) {
+        // вирівняти по центру клітинки перед поворотом
+        e.x = (Math.floor(e.x / TILE) + 0.5) * TILE;
+        e.y = (Math.floor(e.y / TILE) + 0.5) * TILE;
+        e.dir = { ...e.next };
+      }
+    }
+
+    // якщо попереду стіна — стоп на центрі
+    if (atCenterX && atCenterY && !canMove(e, e.dir, allowGate)) {
+      e.x = (Math.floor(e.x / TILE) + 0.5) * TILE;
+      e.y = (Math.floor(e.y / TILE) + 0.5) * TILE;
+      return false;
+    }
+
+    e.x += e.dir.x * e.speed;
+    e.y += e.dir.y * e.speed;
+
+    // тунель
+    if (e.x < -TILE / 2) e.x = W + TILE / 2;
+    if (e.x > W + TILE / 2) e.x = -TILE / 2;
+    return true;
+  }
+
+  // ---- Пакмен ----
+  function updatePac() {
+    moveEntity(pac, false);
+    pac.mouth = (pac.mouth + 0.18) % 1;
+
+    const { c, r } = entTile(pac);
+    if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+      const cell = grid[r][c];
+      if (cell === 2) {
+        grid[r][c] = 0;
+        dotsLeft--;
+        addScore(10);
+      } else if (cell === 3) {
+        grid[r][c] = 0;
+        dotsLeft--;
+        addScore(50);
+        startFright();
+      }
+    }
+
+    if (dotsLeft <= 0) winLevel();
+  }
+
+  function startFright() {
+    frightTimer = 7 * 60; // ~7 секунд при 60fps
+    ghosts.forEach((g) => {
+      if (!g.eaten) {
+        g.frightened = true;
+        // розвернути привидів
+        g.dir = { x: -g.dir.x, y: -g.dir.y };
+      }
+    });
+  }
+
+  // ---- Привиди ----
+  function ghostTargetTile(g) {
+    if (g.eaten) return { c: 13, r: 14 }; // повернення в дім
+    const p = entTile(pac);
+    if (g.frightened) return null; // випадковий рух
+
+    switch (g.name) {
+      case "blinky":
+        return p;
+      case "pinky":
+        return { c: p.c + pac.dir.x * 4, r: p.r + pac.dir.y * 4 };
+      case "inky": {
+        const b = ghosts[0] ? entTile(ghosts[0]) : p;
+        return { c: p.c + (p.c - b.c), r: p.r + (p.r - b.r) };
+      }
+      case "clyde": {
+        const gt = entTile(g);
+        const dist = Math.hypot(gt.c - p.c, gt.r - p.r);
+        return dist > 8 ? p : { c: 1, r: ROWS - 2 };
+      }
+      default:
+        return p;
+    }
+  }
+
+  const DIRS = [
+    { x: 1, y: 0 },
+    { x: -1, y: 0 },
+    { x: 0, y: 1 },
+    { x: 0, y: -1 },
+  ];
+
+  function updateGhost(g, idx) {
+    // випуск з дому
+    if (!g.released) {
+      g.releaseDelay--;
+      if (g.releaseDelay <= 0) g.released = true;
+      // дрейф вгору-вниз у домі
+      const homeY = (g.startRow + 0.5) * TILE;
+      g.y += g.dir.y * 0.6;
+      if (g.y < homeY - 6) g.dir = { x: 0, y: 1 };
+      if (g.y > homeY + 6) g.dir = { x: 0, y: -1 };
+      if (g.released) {
+        // виштовхнути до воріт
+        g.x = 14 * TILE;
+        g.dir = { x: 0, y: -1 };
+      }
+      return;
+    }
+
+    const speed = g.eaten ? 3.4 : g.frightened ? 1.2 : 1.8 + (level - 1) * 0.1;
+    g.speed = speed;
+
+    const atCenterX = Math.abs((g.x % TILE) - TILE / 2) < g.speed;
+    const atCenterY = Math.abs((g.y % TILE) - TILE / 2) < g.speed;
+
+    if (atCenterX && atCenterY) {
+      g.x = (Math.floor(g.x / TILE) + 0.5) * TILE;
+      g.y = (Math.floor(g.y / TILE) + 0.5) * TILE;
+
+      const allowGate = g.eaten || isGate(entTile(g).c, entTile(g).r) ||
+                        isGate(entTile(g).c, entTile(g).r - 1);
+      const target = ghostTargetTile(g);
+      const opposite = { x: -g.dir.x, y: -g.dir.y };
+
+      // зібрати можливі напрямки (без розвороту)
+      let options = DIRS.filter((d) => {
+        if (d.x === opposite.x && d.y === opposite.y) return false;
+        return canMove(g, d, allowGate || g.eaten);
+      });
+      if (options.length === 0) {
+        options = DIRS.filter((d) => canMove(g, d, allowGate || g.eaten));
+      }
+
+      if (options.length > 0) {
+        if (target) {
+          // вибрати напрямок, що мінімізує відстань до цілі
+          let best = options[0];
+          let bestDist = Infinity;
+          const gt = entTile(g);
+          for (const d of options) {
+            const dist = Math.hypot(gt.c + d.x - target.c, gt.r + d.y - target.r);
+            if (dist < bestDist) { bestDist = dist; best = d; }
+          }
+          g.dir = best;
+        } else {
+          // переляканий — випадковий вибір
+          g.dir = options[(Math.random() * options.length) | 0];
+        }
+      }
+
+      // прибув додому — відродитись
+      if (g.eaten) {
+        const t = entTile(g);
+        if (t.c >= 12 && t.c <= 15 && t.r >= 13 && t.r <= 16) {
+          g.eaten = false;
+          g.frightened = false;
+        }
+      }
+    }
+
+    g.x += g.dir.x * g.speed;
+    g.y += g.dir.y * g.speed;
+    if (g.x < -TILE / 2) g.x = W + TILE / 2;
+    if (g.x > W + TILE / 2) g.x = -TILE / 2;
+  }
+
+  function checkCollisions() {
+    for (const g of ghosts) {
+      if (g.eaten) continue;
+      const dist = Math.hypot(g.x - pac.x, g.y - pac.y);
+      if (dist < TILE * 0.7) {
+        if (g.frightened) {
+          g.eaten = true;
+          g.frightened = false;
+          addScore(200);
+        } else {
+          loseLife();
+          return;
+        }
+      }
+    }
+  }
+
+  // ---- Очки / життя / рівні ----
+  function addScore(n) {
+    score += n;
+    scoreEl.textContent = score;
+  }
+
+  function loseLife() {
+    lives--;
+    livesEl.textContent = lives;
+    if (lives <= 0) {
+      state = "over";
+      showOverlay("ГРА ЗАКІНЧЕНА", `Рахунок: ${score}`, "ЩЕ РАЗ", "lose");
+    } else {
+      state = "ready";
+      readyTimer = 90;
+      resetEntities();
+    }
+  }
+
+  function winLevel() {
+    level++;
+    levelEl.textContent = level;
+    addScore(500);
+    state = "ready";
+    readyTimer = 90;
+    loadLevel();
+  }
+
+  function showOverlay(title, text, btn, cls) {
+    overlay.classList.remove("hidden");
+    ovTitle.textContent = title;
+    ovTitle.className = cls || "";
+    ovText.innerHTML = text;
+    ovBtn.textContent = btn;
+  }
+
+  function hideOverlay() {
+    overlay.classList.add("hidden");
+  }
+
+  // ---- Малювання ----
+  function drawMaze() {
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = "#2121de";
+    ctx.lineCap = "round";
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const cell = grid[r][c];
+        const x = c * TILE;
+        const y = r * TILE;
+        if (cell === 1) {
+          // намалювати сегмент стіни з заокругленням
+          ctx.fillStyle = "#0a0a4a";
+          drawWallCell(c, r, x, y);
+        } else if (cell === 4) {
+          // ворота
+          ctx.strokeStyle = "#ff9ce0";
+          ctx.beginPath();
+          ctx.moveTo(x, y + TILE / 2);
+          ctx.lineTo(x + TILE, y + TILE / 2);
+          ctx.stroke();
+          ctx.strokeStyle = "#2121de";
+        }
+      }
+    }
+    // крапки окремим проходом
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const cell = grid[r][c];
+        const cx = c * TILE + TILE / 2;
+        const cy = r * TILE + TILE / 2;
+        if (cell === 2) {
+          ctx.fillStyle = "#ffb897";
+          ctx.beginPath();
+          ctx.arc(cx, cy, 2.2, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (cell === 3) {
+          const pulse = 4 + Math.sin(Date.now() / 150) * 1.5;
+          ctx.fillStyle = "#ffd400";
+          ctx.beginPath();
+          ctx.arc(cx, cy, pulse, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+  }
+
+  function drawWallCell(c, r, x, y) {
+    // суцільна заокруглена стіна — малюємо як скруглений прямокутник,
+    // що зливається з сусідами
+    ctx.fillStyle = "#11119a";
+    const pad = 1;
+    roundRect(x + pad, y + pad, TILE - pad * 2, TILE - pad * 2, 4);
+    ctx.fill();
+    // легка підсвітка контуру
+    ctx.strokeStyle = "#3a3aff";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function drawPac() {
+    const open = Math.abs(Math.sin(pac.mouth * Math.PI)) * 0.28;
+    let ang = 0;
+    if (pac.dir.x === 1) ang = 0;
+    else if (pac.dir.x === -1) ang = Math.PI;
+    else if (pac.dir.y === 1) ang = Math.PI / 2;
+    else if (pac.dir.y === -1) ang = -Math.PI / 2;
+
+    ctx.save();
+    ctx.translate(pac.x, pac.y);
+    ctx.rotate(ang);
+    ctx.fillStyle = "#ffd400";
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, TILE / 2 - 1, open * Math.PI, (2 - open) * Math.PI);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawGhost(g) {
+    const radius = TILE / 2 - 1;
+    let body = g.color;
+    if (g.eaten) body = "transparent";
+    else if (g.frightened) {
+      body = frightTimer < 120 && Math.floor(frightTimer / 12) % 2 === 0 ? "#fff" : "#2121de";
+    }
+
+    if (!g.eaten) {
+      ctx.fillStyle = body;
+      ctx.beginPath();
+      ctx.arc(g.x, g.y - 1, radius, Math.PI, 0);
+      // спідниця-зубчики
+      const feet = 4;
+      const baseY = g.y + radius - 1;
+      ctx.lineTo(g.x + radius, baseY);
+      for (let i = 0; i < feet; i++) {
+        const fx = g.x + radius - (i * 2 + 1) * (radius / feet);
+        const dir = i % 2 === 0 ? -1 : 1;
+        ctx.lineTo(fx, baseY + (i % 2 === 0 ? -4 : 0));
+      }
+      ctx.lineTo(g.x - radius, baseY);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // очі
+    const eyeColor = g.frightened && !g.eaten ? "#ffb8b8" : "#fff";
+    const lookX = g.dir.x * 2;
+    const lookY = g.dir.y * 2;
+    for (const sx of [-4, 4]) {
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.ellipse(g.x + sx, g.y - 2, 3, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = g.frightened && !g.eaten ? "#ff5050" : "#2121de";
+      ctx.beginPath();
+      ctx.arc(g.x + sx + lookX, g.y - 2 + lookY, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function draw() {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, W, H);
+    drawMaze();
+    drawPac();
+    ghosts.forEach(drawGhost);
+
+    if (state === "ready" && readyTimer > 0) {
+      ctx.fillStyle = "#ffd400";
+      ctx.font = "16px 'Press Start 2P', monospace";
+      ctx.textAlign = "center";
+      ctx.fillText("ГОТОВИЙ!", W / 2, H / 2 + 40);
+    }
+    if (state === "paused") {
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "#fff";
+      ctx.font = "18px 'Press Start 2P', monospace";
+      ctx.textAlign = "center";
+      ctx.fillText("ПАУЗА", W / 2, H / 2);
+    }
+  }
+
+  // ---- Головний цикл ----
+  function update() {
+    if (state === "ready") {
+      readyTimer--;
+      if (readyTimer <= 0) state = "playing";
+      return;
+    }
+    if (state !== "playing") return;
+
+    updatePac();
+    ghosts.forEach(updateGhost);
+    checkCollisions();
+
+    if (frightTimer > 0) {
+      frightTimer--;
+      if (frightTimer === 0) ghosts.forEach((g) => (g.frightened = false));
+    }
+  }
+
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  // ---- Керування ----
+  const KEY_DIRS = {
+    ArrowUp: { x: 0, y: -1 }, KeyW: { x: 0, y: -1 },
+    ArrowDown: { x: 0, y: 1 }, KeyS: { x: 0, y: 1 },
+    ArrowLeft: { x: -1, y: 0 }, KeyA: { x: -1, y: 0 },
+    ArrowRight: { x: 1, y: 0 }, KeyD: { x: 1, y: 0 },
+  };
+
+  document.addEventListener("keydown", (e) => {
+    if (KEY_DIRS[e.code]) {
+      e.preventDefault();
+      pac.next = { ...KEY_DIRS[e.code] };
+    }
+    if (e.code === "KeyP") {
+      if (state === "playing") state = "paused";
+      else if (state === "paused") state = "playing";
+    }
+  });
+
+  // дотик (свайпи) для мобільних
+  let touchStart = null;
+  canvas.addEventListener("touchstart", (e) => {
+    touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  }, { passive: true });
+  canvas.addEventListener("touchend", (e) => {
+    if (!touchStart) return;
+    const dx = e.changedTouches[0].clientX - touchStart.x;
+    const dy = e.changedTouches[0].clientY - touchStart.y;
+    if (Math.abs(dx) > Math.abs(dy)) {
+      pac.next = { x: dx > 0 ? 1 : -1, y: 0 };
+    } else {
+      pac.next = { x: 0, y: dy > 0 ? 1 : -1 };
+    }
+    touchStart = null;
+  }, { passive: true });
+
+  // ---- Старт / рестарт ----
+  function startGame() {
+    score = 0;
+    lives = 3;
+    level = 1;
+    scoreEl.textContent = 0;
+    livesEl.textContent = 3;
+    levelEl.textContent = 1;
+    loadLevel();
+    hideOverlay();
+    state = "ready";
+    readyTimer = 90;
+  }
+
+  ovBtn.addEventListener("click", startGame);
+
+  // ініціалізація без запуску
+  loadLevel();
+  draw();
+  loop();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PERCEPTRON / MARK-Ø — Rosenblatt trainer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,700;1,400&family=Fraunces:opsz,wght@9..144,600;9..144,900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d0b08;
+    --panel: #15120d;
+    --panel-edge: #2a241a;
+    --ink: #d8cfbe;
+    --ink-dim: #7d7363;
+    --amber: #ffb454;       /* class 0 */
+    --phosphor: #5ff2c8;    /* class 1 */
+    --trace: #f2ead8;       /* decision line */
+    --danger: #ff6b5e;
+    --grid: rgba(216, 207, 190, 0.07);
+    font-size: 15px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 28px 20px 48px;
+    /* subtle paper-in-the-dark vignette */
+    background-image:
+      radial-gradient(1200px 700px at 50% -10%, rgba(255, 180, 84, 0.06), transparent 60%),
+      radial-gradient(900px 600px at 90% 110%, rgba(95, 242, 200, 0.04), transparent 60%);
+  }
+
+  /* film grain over everything */
+  body::after {
+    content: "";
+    position: fixed; inset: 0;
+    pointer-events: none;
+    opacity: 0.5;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  header {
+    width: min(1060px, 100%);
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    border-bottom: 1px solid var(--panel-edge);
+    padding-bottom: 14px;
+    margin-bottom: 18px;
+  }
+  h1 {
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 900;
+    font-size: clamp(1.6rem, 4vw, 2.4rem);
+    letter-spacing: 0.01em;
+    color: var(--trace);
+  }
+  h1 .zero { color: var(--amber); font-style: italic; }
+  header .sub {
+    color: var(--ink-dim);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+  }
+
+  .bench {
+    width: min(1060px, 100%);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: 18px;
+    align-items: start;
+  }
+  @media (max-width: 880px) { .bench { grid-template-columns: 1fr; } }
+
+  /* ── scope ─────────────────────────────── */
+  .scope {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    border-radius: 10px;
+    padding: 14px;
+    box-shadow: 0 30px 60px -30px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+  .scope canvas#plot {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 6px;
+    background: #0a0906;
+    cursor: crosshair;
+  }
+  .scope .hint {
+    margin-top: 10px;
+    font-size: 0.72rem;
+    color: var(--ink-dim);
+    letter-spacing: 0.04em;
+  }
+  .scope .hint b { color: var(--ink); font-weight: 500; }
+
+  .status-lamp {
+    position: absolute;
+    top: 24px; right: 26px;
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 3px;
+    background: rgba(0,0,0,0.55);
+    border: 1px solid var(--panel-edge);
+    color: var(--ink-dim);
+    transition: color 0.3s, border-color 0.3s;
+  }
+  .status-lamp.running { color: var(--amber); border-color: rgba(255,180,84,0.5); animation: blink 1s steps(2) infinite; }
+  .status-lamp.converged { color: var(--phosphor); border-color: rgba(95,242,200,0.5); }
+  .status-lamp.stuck { color: var(--danger); border-color: rgba(255,107,94,0.5); }
+  @keyframes blink { 50% { opacity: 0.55; } }
+
+  /* ── console ───────────────────────────── */
+  .console {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .module {
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    border-radius: 10px;
+    padding: 14px 16px 16px;
+    box-shadow: 0 20px 40px -28px rgba(0,0,0,0.9);
+  }
+  .module legend, .module .mlabel {
+    display: block;
+    font-size: 0.66rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    margin-bottom: 12px;
+  }
+
+  .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  button {
+    font-family: inherit;
+    font-size: 0.8rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 10px 6px;
+    background: #1d1810;
+    color: var(--ink);
+    border: 1px solid var(--panel-edge);
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, transform 0.05s;
+  }
+  button:hover { background: #261f14; border-color: #463c28; }
+  button:active { transform: translateY(1px); }
+  button.primary { background: var(--amber); border-color: var(--amber); color: #1a1206; font-weight: 700; }
+  button.primary:hover { background: #ffc679; }
+  button:disabled { opacity: 0.35; cursor: default; transform: none; }
+  button.span2 { grid-column: span 2; }
+
+  .slider-row { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+  .slider-row output { color: var(--amber); font-weight: 700; }
+  input[type="range"] {
+    width: 100%;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--amber), #4a3a1d);
+    outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--ink);
+    border: 3px solid var(--bg);
+    box-shadow: 0 0 0 1px var(--amber);
+    cursor: ew-resize;
+  }
+
+  table.readout { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  table.readout td { padding: 5px 0; border-bottom: 1px dashed rgba(216,207,190,0.12); }
+  table.readout td:last-child { text-align: right; color: var(--trace); font-weight: 500; }
+  table.readout tr.warn td:last-child { color: var(--danger); }
+
+  canvas#errChart {
+    display: block;
+    width: 100%;
+    height: 72px;
+    background: #0a0906;
+    border-radius: 5px;
+  }
+
+  .toggle-row { display: flex; align-items: center; gap: 10px; font-size: 0.78rem; cursor: pointer; user-select: none; }
+  .toggle-row input { accent-color: var(--amber); width: 15px; height: 15px; cursor: pointer; }
+  .toggle-row .note { color: var(--ink-dim); font-size: 0.68rem; display: block; margin-top: 4px; }
+
+  .legend-dots { display: flex; gap: 16px; margin-top: 10px; font-size: 0.72rem; color: var(--ink-dim); }
+  .legend-dots span::before {
+    content: "●"; margin-right: 6px;
+  }
+  .legend-dots .c0::before { color: var(--amber); }
+  .legend-dots .c1::before { color: var(--phosphor); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>PERCEPTRON / MARK-<span class="zero">Ø</span></h1>
+  <span class="sub">Rosenblatt online trainer · 1958 → 2026</span>
+</header>
+
+<div class="bench">
+  <div class="scope">
+    <div class="status-lamp" id="lamp">idle</div>
+    <canvas id="plot"></canvas>
+    <p class="hint"><b>Клік</b> — додати точку класу A · <b>Shift+клік</b> — класу B · пунктир — «справжня» межа генератора</p>
+    <div class="legend-dots">
+      <span class="c0">class A (target 0)</span>
+      <span class="c1">class B (target 1)</span>
+    </div>
+  </div>
+
+  <div class="console">
+    <div class="module">
+      <span class="mlabel">Drive</span>
+      <div class="btn-grid">
+        <button class="primary span2" id="btnTrain">Train</button>
+        <button id="btnStep">Step</button>
+        <button id="btnReset">Reset W</button>
+        <button class="span2" id="btnData">New data</button>
+      </div>
+    </div>
+
+    <div class="module">
+      <span class="mlabel">Learning rate</span>
+      <div class="slider-row">
+        <span>η</span><output id="lrOut">0.10</output>
+      </div>
+      <input type="range" id="lrSlider" min="-3" max="0" step="0.01" value="-1">
+    </div>
+
+    <div class="module">
+      <span class="mlabel">Readout</span>
+      <table class="readout">
+        <tr><td>epoch</td><td id="roEpoch">0</td></tr>
+        <tr><td>errors / last pass</td><td id="roErr">—</td></tr>
+        <tr><td>w₁</td><td id="roW1">0</td></tr>
+        <tr><td>w₂</td><td id="roW2">0</td></tr>
+        <tr><td>b</td><td id="roB">0</td></tr>
+      </table>
+    </div>
+
+    <div class="module">
+      <span class="mlabel">Errors per epoch</span>
+      <canvas id="errChart"></canvas>
+    </div>
+
+    <div class="module">
+      <label class="toggle-row">
+        <input type="checkbox" id="xorToggle">
+        <span>XOR-режим (нероздільні дані)</span>
+      </label>
+      <span class="note">Демонструє, чому одношаровий перцептрон ніколи не збіжиться на XOR.</span>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ── model ──────────────────────────────────────────────── */
+
+class Perceptron {
+  constructor() { this.reset(); }
+  reset() {
+    this.w1 = (Math.random() * 2 - 1) * 0.5;
+    this.w2 = (Math.random() * 2 - 1) * 0.5;
+    this.b  = (Math.random() * 2 - 1) * 0.5;
+  }
+  predict(p) { return (this.w1 * p.x + this.w2 * p.y + this.b) >= 0 ? 1 : 0; }
+  /* one Rosenblatt update; returns true if weights changed */
+  learn(p, lr) {
+    const err = p.label - this.predict(p);
+    if (err === 0) return false;
+    this.w1 += lr * err * p.x;
+    this.w2 += lr * err * p.y;
+    this.b  += lr * err;
+    return true;
+  }
+}
+
+/* ── data ───────────────────────────────────────────────── */
+/* points live in normalized coords x,y ∈ [-1, 1] */
+
+const MARGIN = 0.09;
+
+function makeSeparableData(n = 80) {
+  const angle = Math.random() * Math.PI * 2;
+  const truth = {
+    w1: Math.cos(angle),
+    w2: Math.sin(angle),
+    b: (Math.random() * 2 - 1) * 0.4,
+  };
+  const pts = [];
+  while (pts.length < n) {
+    const x = Math.random() * 2 - 1, y = Math.random() * 2 - 1;
+    const d = truth.w1 * x + truth.w2 * y + truth.b;
+    if (Math.abs(d) < MARGIN) continue;          // keep a gap → guaranteed convergence
+    pts.push({ x, y, label: d >= 0 ? 1 : 0 });
+  }
+  return { pts, truth };
+}
+
+function makeXorData(n = 80) {
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const qx = Math.random() < 0.5 ? -0.5 : 0.5;
+    const qy = Math.random() < 0.5 ? -0.5 : 0.5;
+    pts.push({
+      x: qx + (Math.random() * 2 - 1) * 0.28,
+      y: qy + (Math.random() * 2 - 1) * 0.28,
+      label: (qx > 0) !== (qy > 0) ? 1 : 0,
+    });
+  }
+  return { pts, truth: null };
+}
+
+/* ── state ──────────────────────────────────────────────── */
+
+const model = new Perceptron();
+let data = makeSeparableData();
+let cursor = 0;              // index of next sample in the pass
+let epoch = 0;
+let errsThisPass = 0;
+let lastPassErrors = null;
+let errHistory = [];
+let converged = false;
+let running = false;
+let lastTrained = null;      // point highlighted after an update
+let lr = 0.1;
+
+const MAX_EPOCHS = 4000;      // safety stop for non-separable data
+
+function resetTraining({ newWeights = true } = {}) {
+  if (newWeights) model.reset();
+  cursor = 0; epoch = 0; errsThisPass = 0;
+  lastPassErrors = null; errHistory = [];
+  converged = false; running = false; lastTrained = null;
+}
+
+/* one training step: walk forward until a sample triggers an update
+   or the pass ends; returns false when training should stop */
+function step() {
+  if (converged || epoch >= MAX_EPOCHS) return false;
+  while (true) {
+    const p = data.pts[cursor];
+    const updated = model.learn(p, lr);
+    if (updated) { errsThisPass++; lastTrained = p; }
+    cursor++;
+    if (cursor >= data.pts.length) {           // pass complete
+      cursor = 0; epoch++;
+      lastPassErrors = errsThisPass;
+      errHistory.push(errsThisPass);
+      if (errsThisPass === 0) { converged = true; return false; }
+      errsThisPass = 0;
+      if (epoch >= MAX_EPOCHS) return false;
+    }
+    if (updated) return true;
+  }
+}
+
+/* ── canvas plumbing ────────────────────────────────────── */
+
+const plot = document.getElementById("plot");
+const pctx = plot.getContext("2d");
+const chart = document.getElementById("errChart");
+const cctx = chart.getContext("2d");
+
+function fitCanvas(cv) {
+  const dpr = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  cv.width = Math.round(r.width * dpr);
+  cv.height = Math.round(r.height * dpr);
+}
+function fitAll() { fitCanvas(plot); fitCanvas(chart); draw(); }
+window.addEventListener("resize", fitAll);
+
+const toPx = (p, w, h) => ({ px: (p.x + 1) / 2 * w, py: (1 - (p.y + 1) / 2) * h });
+
+/* Sutherland–Hodgman: clip the unit square to the half-plane f(p) >= 0 */
+function halfPlanePolygon(w1, w2, b) {
+  let poly = [{x:-1,y:-1},{x:1,y:-1},{x:1,y:1},{x:-1,y:1}];
+  const f = p => w1 * p.x + w2 * p.y + b;
+  const out = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], c = poly[(i + 1) % poly.length];
+    const fa = f(a), fc = f(c);
+    if (fa >= 0) out.push(a);
+    if ((fa >= 0) !== (fc >= 0)) {
+      const t = fa / (fa - fc);
+      out.push({ x: a.x + t * (c.x - a.x), y: a.y + t * (c.y - a.y) });
+    }
+  }
+  return out;
+}
+
+function strokeBoundary(w1, w2, b, style, width, dash) {
+  const W = plot.width, H = plot.height;
+  /* endpoints: intersect the line with the unit square, dedupe corners */
+  const pts = [];
+  const tryPush = (x, y) => {
+    if (!isFinite(x) || !isFinite(y)) return;
+    if (x < -1.01 || x > 1.01 || y < -1.01 || y > 1.01) return;
+    if (pts.some(q => Math.abs(q.x - x) < 1e-6 && Math.abs(q.y - y) < 1e-6)) return;
+    pts.push({ x, y });
+  };
+  tryPush(-1, -(w1 * -1 + b) / w2);
+  tryPush( 1, -(w1 *  1 + b) / w2);
+  tryPush(-(w2 * -1 + b) / w1, -1);
+  tryPush(-(w2 *  1 + b) / w1,  1);
+  if (pts.length < 2) return;
+  const a = toPx(pts[0], W, H), c = toPx(pts[1], W, H);
+  pctx.save();
+  pctx.strokeStyle = style;
+  pctx.lineWidth = width;
+  pctx.setLineDash(dash || []);
+  pctx.shadowColor = style;
+  pctx.shadowBlur = dash ? 0 : 10;
+  pctx.beginPath();
+  pctx.moveTo(a.px, a.py);
+  pctx.lineTo(c.px, c.py);
+  pctx.stroke();
+  pctx.restore();
+}
+
+function draw() {
+  const W = plot.width, H = plot.height;
+  pctx.clearRect(0, 0, W, H);
+
+  /* half-plane wash for the current decision */
+  const pos = halfPlanePolygon(model.w1, model.w2, model.b);
+  if (pos.length >= 3) {
+    pctx.fillStyle = "rgba(95, 242, 200, 0.05)";
+    pctx.beginPath();
+    pos.forEach((p, i) => { const q = toPx(p, W, H); i ? pctx.lineTo(q.px, q.py) : pctx.moveTo(q.px, q.py); });
+    pctx.closePath(); pctx.fill();
+  }
+  const neg = halfPlanePolygon(-model.w1, -model.w2, -model.b);
+  if (neg.length >= 3) {
+    pctx.fillStyle = "rgba(255, 180, 84, 0.05)";
+    pctx.beginPath();
+    neg.forEach((p, i) => { const q = toPx(p, W, H); i ? pctx.lineTo(q.px, q.py) : pctx.moveTo(q.px, q.py); });
+    pctx.closePath(); pctx.fill();
+  }
+
+  /* graph-paper grid */
+  pctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--grid");
+  pctx.lineWidth = 1;
+  for (let i = 1; i < 10; i++) {
+    const t = i / 10;
+    pctx.beginPath(); pctx.moveTo(t * W, 0); pctx.lineTo(t * W, H); pctx.stroke();
+    pctx.beginPath(); pctx.moveTo(0, t * H); pctx.lineTo(W, t * H); pctx.stroke();
+  }
+
+  /* truth line (generator) */
+  if (data.truth) {
+    strokeBoundary(data.truth.w1, data.truth.w2, data.truth.b,
+      "rgba(216, 207, 190, 0.35)", 1.5, [6, 6]);
+  }
+
+  /* points */
+  const dpr = window.devicePixelRatio || 1;
+  const r = 4.5 * dpr;
+  for (const p of data.pts) {
+    const { px, py } = toPx(p, W, H);
+    const wrong = model.predict(p) !== p.label;
+    pctx.beginPath();
+    pctx.arc(px, py, r, 0, Math.PI * 2);
+    pctx.fillStyle = p.label === 1 ? "rgba(95,242,200,0.92)" : "rgba(255,180,84,0.92)";
+    pctx.fill();
+    if (wrong) {
+      pctx.beginPath();
+      pctx.arc(px, py, r + 3 * dpr, 0, Math.PI * 2);
+      pctx.strokeStyle = "rgba(255,107,94,0.9)";
+      pctx.lineWidth = 1.5 * dpr;
+      pctx.stroke();
+    }
+  }
+
+  /* flash the sample we just learned on */
+  if (lastTrained) {
+    const { px, py } = toPx(lastTrained, W, H);
+    pctx.beginPath();
+    pctx.arc(px, py, r + 7 * dpr, 0, Math.PI * 2);
+    pctx.strokeStyle = "rgba(242,234,216,0.8)";
+    pctx.lineWidth = 2 * dpr;
+    pctx.setLineDash([4 * dpr, 3 * dpr]);
+    pctx.stroke();
+    pctx.setLineDash([]);
+  }
+
+  /* decision boundary */
+  if (Math.abs(model.w1) > 1e-9 || Math.abs(model.w2) > 1e-9) {
+    strokeBoundary(model.w1, model.w2, model.b, "rgba(242,234,216,0.95)", 2.5 * dpr);
+  }
+
+  drawChart();
+  updateReadout();
+}
+
+function drawChart() {
+  const W = chart.width, H = chart.height;
+  cctx.clearRect(0, 0, W, H);
+  if (!errHistory.length) {
+    cctx.fillStyle = "rgba(216,207,190,0.25)";
+    cctx.font = `${10 * (window.devicePixelRatio || 1)}px "IBM Plex Mono", monospace`;
+    cctx.fillText("— no passes yet —", 10, H / 2 + 4);
+    return;
+  }
+  const max = Math.max(...errHistory, 1);
+  const n = errHistory.length;
+  const pad = 6;
+  cctx.strokeStyle = "rgba(255,180,84,0.9)";
+  cctx.lineWidth = 1.5 * (window.devicePixelRatio || 1);
+  cctx.beginPath();
+  errHistory.forEach((e, i) => {
+    const x = pad + (n === 1 ? 0 : i / (n - 1)) * (W - pad * 2);
+    const y = H - pad - (e / max) * (H - pad * 2);
+    i ? cctx.lineTo(x, y) : cctx.moveTo(x, y);
+  });
+  cctx.stroke();
+  /* zero baseline */
+  cctx.strokeStyle = "rgba(95,242,200,0.3)";
+  cctx.setLineDash([3, 3]);
+  cctx.beginPath();
+  cctx.moveTo(pad, H - pad); cctx.lineTo(W - pad, H - pad);
+  cctx.stroke();
+  cctx.setLineDash([]);
+}
+
+/* ── readout & lamp ─────────────────────────────────────── */
+
+const $ = id => document.getElementById(id);
+const lamp = $("lamp");
+
+function updateReadout() {
+  $("roEpoch").textContent = epoch;
+  const errRow = $("roErr");
+  errRow.textContent = lastPassErrors === null ? "—" : lastPassErrors;
+  errRow.parentElement.classList.toggle("warn", (lastPassErrors ?? 0) > 0);
+  $("roW1").textContent = model.w1.toFixed(3);
+  $("roW2").textContent = model.w2.toFixed(3);
+  $("roB").textContent = model.b.toFixed(3);
+
+  lamp.className = "status-lamp";
+  if (converged) { lamp.classList.add("converged"); lamp.textContent = `converged · ${epoch} ep`; }
+  else if (epoch >= MAX_EPOCHS) { lamp.classList.add("stuck"); lamp.textContent = "no convergence"; }
+  else if (running) { lamp.classList.add("running"); lamp.textContent = "training"; }
+  else { lamp.textContent = "idle"; }
+}
+
+/* ── train loop ─────────────────────────────────────────── */
+
+const btnTrain = $("btnTrain");
+
+function setRunning(v) {
+  running = v;
+  btnTrain.textContent = v ? "Pause" : "Train";
+  btnTrain.classList.toggle("primary", !v);
+  updateReadout();
+}
+
+function frame() {
+  if (!running) return;
+  if (!step()) setRunning(false);
+  draw();
+  if (running) requestAnimationFrame(frame);
+}
+
+btnTrain.addEventListener("click", () => {
+  if (running) { setRunning(false); draw(); return; }
+  if (converged || epoch >= MAX_EPOCHS) return;
+  setRunning(true);
+  requestAnimationFrame(frame);
+});
+
+$("btnStep").addEventListener("click", () => {
+  setRunning(false);
+  step();
+  draw();
+});
+
+$("btnReset").addEventListener("click", () => {
+  resetTraining();
+  setRunning(false);
+  draw();
+});
+
+$("btnData").addEventListener("click", () => {
+  data = $("xorToggle").checked ? makeXorData() : makeSeparableData();
+  resetTraining();
+  setRunning(false);
+  draw();
+});
+
+$("xorToggle").addEventListener("change", e => {
+  data = e.target.checked ? makeXorData() : makeSeparableData();
+  resetTraining();
+  setRunning(false);
+  draw();
+});
+
+/* learning-rate slider: log scale 10^-3 … 10^0 */
+const lrSlider = $("lrSlider"), lrOut = $("lrOut");
+function syncLr() {
+  lr = Math.pow(10, parseFloat(lrSlider.value));
+  lrOut.textContent = lr < 0.01 ? lr.toFixed(3) : lr.toFixed(2);
+}
+lrSlider.addEventListener("input", syncLr);
+syncLr();
+
+/* click to add points: plain = class A (0), shift = class B (1) */
+plot.addEventListener("click", e => {
+  const r = plot.getBoundingClientRect();
+  const x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  const y = (1 - (e.clientY - r.top) / r.height) * 2 - 1;
+  data.pts.push({ x, y, label: e.shiftKey ? 1 : 0 });
+  converged = false;            // new point may break convergence
+  if (epoch >= MAX_EPOCHS) epoch = MAX_EPOCHS - 1;
+  draw();
+});
+
+/* ── go ─────────────────────────────────────────────────── */
+fitAll();
+</script>
+</body>
+</html>

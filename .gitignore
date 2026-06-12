@@ -1,1 +1,21 @@
-.cursor/debug-954d86.log
+# System files
+.DS_Store
+Thumbs.db
+
+# Local editor/agent state
+.cursor/
+.claude/settings.local.json
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+image-gen/.venv/
+image-gen/output/
+
+# Node / Angular
+node_modules/
+pong-game/node_modules/
+pong-game/.angular/
+pong-game/dist/

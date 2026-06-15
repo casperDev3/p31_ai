@@ -37,6 +37,10 @@ class Config:
     vad_threshold_factor: float = 3.0  # threshold = ambient_rms * factor ...
     vad_threshold_floor: float = 350.0 # ... but never below this (int16 RMS)
 
+    # --- GUI ---
+    camera_index: int = int(os.environ.get("VA_CAMERA", "0"))
+    window_title: str = "Голосовий асистент"
+
     # --- Groq models ---
     stt_model: str = os.environ.get("VA_STT_MODEL", "whisper-large-v3")
     llm_model: str = os.environ.get("VA_LLM_MODEL", "llama-3.3-70b-versatile")

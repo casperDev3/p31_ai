@@ -4,6 +4,15 @@ sounddevice
 numpy
 gTTS              # українська TTS (дефолтний движок, VA_TTS_ENGINE=gtts)
 
+# --- Web backend (python -m voice_assistant.server) ---
+fastapi           # REST API над Groq-пайплайном
+uvicorn           # ASGI-сервер
+python-multipart  # прийом аудіо (multipart/form-data)
+
+# --- Desktop GUI (optional, python -m voice_assistant.gui) ---
+# PySide6         # вікно, віджети, малювання хвиль
+# opencv-python   # захоплення вебкамери (на macOS вимагає TCC-дозволу терміналу)
+
 # --- Optional ---
 # simpleaudio     # відтворення WAV (не на macOS — там вистачає afplay)
 # playsound       # відтворення mp3 на не-macOS системах

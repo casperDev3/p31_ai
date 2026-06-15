@@ -1,0 +1,11 @@
+groq
+python-dotenv
+sounddevice
+numpy
+gTTS              # українська TTS (дефолтний движок, VA_TTS_ENGINE=gtts)
+
+# --- Optional ---
+# simpleaudio     # відтворення WAV (не на macOS — там вистачає afplay)
+# playsound       # відтворення mp3 на не-macOS системах
+# webrtcvad       # VAD: авто-визначення кінця фрази (Stage 2)
+# pyttsx3         # офлайн TTS фолбек (VA_TTS_ENGINE=pyttsx3)

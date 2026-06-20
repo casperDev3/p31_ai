@@ -7,7 +7,7 @@
   <title>Ігор Лялюк — розробник · RED Solutions</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;0,9..40,900;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <style>
     :root {
       --bg: #0a0c10;
@@ -31,6 +31,21 @@
       --radius-lg: 16px;
       --max: 1100px;
       --nav-h: 72px;
+      color-scheme: dark;
+    }
+
+    /* —— Light theme (synced from Figma "Light" mode) —— */
+    [data-theme="light"] {
+      --bg: #fafcff;
+      --surface: #ffffff;
+      --surface-2: #eef2f8;
+      --border: #d9e0ea;
+      --text: #0f1620;
+      --muted: #5b6577;
+      --accent: #0fae9c;
+      --accent-dim: #0fae9c21;
+      --warm: #c2870a;
+      color-scheme: light;
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -47,6 +62,7 @@
       line-height: 1.6;
       overflow-x: hidden;
       -webkit-font-smoothing: antialiased;
+      transition: background-color 0.3s ease, color 0.3s ease;
     }
 
     body::before {
@@ -106,7 +122,7 @@
     }
 
     .site-header.scrolled {
-      background: #0a0c10cc;
+      background: color-mix(in srgb, var(--bg) 80%, transparent);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
       border-bottom-color: var(--border);
@@ -131,6 +147,46 @@
     }
 
     .logo span { color: var(--accent); }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+
+    /* —— Theme toggle (synced from Figma "Theme toggle" component) —— */
+    .theme-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      padding: 3px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+    }
+
+    .theme-seg {
+      font-family: var(--mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      min-height: 26px;
+      padding: 5px 12px;
+      border: none;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      transition: color 0.15s, background 0.15s;
+    }
+
+    .theme-seg:hover { color: var(--text); }
+
+    .theme-seg.is-active {
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
 
     .nav-desktop {
       display: flex;
@@ -174,7 +230,7 @@
       display: none;
       position: fixed;
       inset: var(--nav-h) 0 0 0;
-      background: #0a0c10f5;
+      background: color-mix(in srgb, var(--bg) 96%, transparent);
       backdrop-filter: blur(8px);
       -webkit-backdrop-filter: blur(8px);
       padding: var(--space-3);
@@ -736,20 +792,26 @@
   <header class="site-header" id="site-header">
     <div class="nav-inner">
       <a class="logo" href="#" aria-label="На початок">IL<span>.</span>dev</a>
-      <nav aria-label="Головна навігація">
-        <ul class="nav-desktop">
-          <li><a href="#about">Про мене</a></li>
-          <li><a href="#skills">Навички</a></li>
-          <li><a href="#projects">Проєкти</a></li>
-          <li><a href="#experience">Досвід</a></li>
-          <li><a href="#contact">Контакт</a></li>
-        </ul>
-      </nav>
-      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="nav-drawer" aria-label="Відкрити меню">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <path d="M4 6h16M4 12h16M4 18h16"/>
-        </svg>
-      </button>
+      <div class="nav-right">
+        <nav aria-label="Головна навігація">
+          <ul class="nav-desktop">
+            <li><a href="#about">Про мене</a></li>
+            <li><a href="#skills">Навички</a></li>
+            <li><a href="#projects">Проєкти</a></li>
+            <li><a href="#experience">Досвід</a></li>
+            <li><a href="#contact">Контакт</a></li>
+          </ul>
+        </nav>
+        <div class="theme-toggle" role="group" aria-label="Перемикач теми">
+          <button type="button" class="theme-seg is-active" data-theme-value="dark" aria-pressed="true">Dark</button>
+          <button type="button" class="theme-seg" data-theme-value="light" aria-pressed="false">Light</button>
+        </div>
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="nav-drawer" aria-label="Відкрити меню">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M4 6h16M4 12h16M4 18h16"/>
+          </svg>
+        </button>
+      </div>
     </div>
   </header>
 
@@ -816,7 +878,7 @@
         <div class="about-grid">
           <div>
             <p>
-              Розробник з України, працюю в <strong style="color: var(--text)">RED Solutions</strong>.
+              Розробник з України, працюю в <strong style="color: #ff3b30; font-weight: 900">RED Solutions</strong><span style="color: var(--warm)">.</span>
               Будую інтерфейси та застосунки: від Angular і Canvas-ігор до мобільних проєктів на
               React Native / Expo та бекендів на Python.
             </p>
@@ -1013,6 +1075,27 @@
             el.scrollIntoView({ behavior: 'smooth', block: 'start' });
           }
         });
+      });
+
+      // —— Theme toggle (Dark / Light) ——
+      const root = document.documentElement;
+      const themeToggle = document.querySelector('.theme-toggle');
+      function applyTheme(theme) {
+        root.setAttribute('data-theme', theme);
+        themeToggle.querySelectorAll('.theme-seg').forEach((b) => {
+          const active = b.dataset.themeValue === theme;
+          b.classList.toggle('is-active', active);
+          b.setAttribute('aria-pressed', String(active));
+        });
+        try { localStorage.setItem('theme', theme); } catch (e) {}
+      }
+      let savedTheme = null;
+      try { savedTheme = localStorage.getItem('theme'); } catch (e) {}
+      const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+      applyTheme(savedTheme || (prefersLight ? 'light' : 'dark'));
+      themeToggle.addEventListener('click', (e) => {
+        const btn = e.target.closest('.theme-seg');
+        if (btn) applyTheme(btn.dataset.themeValue);
       });
     })();
   </script>

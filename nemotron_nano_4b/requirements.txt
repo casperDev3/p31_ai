@@ -1,0 +1,7 @@
+# Локальний інференс Nemotron-Nano-4B на PyTorch (Apple Silicon / MPS).
+# Встановлювати у ОКРЕМИЙ venv на Python 3.13 (кореневий .venv = 3.14, torch там недоступний).
+torch>=2.4
+transformers>=4.44.2
+accelerate
+huggingface_hub[hf_xet]
+sentencepiece
